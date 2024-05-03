@@ -30,6 +30,7 @@ use daft_io::{IOClient, IOConfig, IOStatsContext, IOStatsRef};
 use daft_stats::TableStatistics;
 use daft_stats::{PartitionSpec, TableMetadata};
 
+#[derive(Debug)]
 pub(crate) enum TableState {
     Unloaded(Arc<ScanTask>),
     Loaded(Arc<Vec<Table>>),
@@ -59,7 +60,9 @@ impl Display for TableState {
         }
     }
 }
-pub(crate) struct MicroPartition {
+
+#[derive(Debug)]
+pub struct MicroPartition {
     /// Schema of the MicroPartition
     ///
     /// This is technically redundant with the schema in `state`:

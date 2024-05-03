@@ -1150,6 +1150,7 @@ dependencies = [
  "daft-core",
  "daft-csv",
  "daft-dsl",
+ "daft-execution",
  "daft-io",
  "daft-json",
  "daft-micropartition",
@@ -1281,6 +1282,31 @@ dependencies = [
  "pyo3-log",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "daft-execution"
+version = "0.2.0-dev0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "common-error",
+ "daft-core",
+ "daft-dsl",
+ "daft-micropartition",
+ "daft-plan",
+ "daft-scan",
+ "futures",
+ "pyo3",
+ "pyo3-log",
+ "rayon",
+ "rstest",
+ "serde",
+ "serde_json",
+ "snafu",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
 ]
 
 [[package]]

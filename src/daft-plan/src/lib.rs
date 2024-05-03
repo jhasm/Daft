@@ -9,7 +9,7 @@ mod logical_ops;
 mod logical_optimization;
 mod logical_plan;
 mod partitioning;
-mod physical_ops;
+pub mod physical_ops;
 mod physical_plan;
 mod physical_planner;
 mod resource_request;
@@ -24,9 +24,10 @@ pub use daft_core::join::{JoinStrategy, JoinType};
 use daft_scan::file_format::FileFormat;
 pub use logical_plan::{LogicalPlan, LogicalPlanRef};
 pub use partitioning::ClusteringSpec;
-pub use physical_plan::PhysicalPlanScheduler;
+pub use physical_plan::{PhysicalPlan, PhysicalPlanScheduler};
 pub use resource_request::ResourceRequest;
-pub use source_info::{FileInfo, FileInfos};
+pub use sink_info::OutputFileInfo;
+pub use source_info::{FileInfo, FileInfos, InMemoryInfo};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
