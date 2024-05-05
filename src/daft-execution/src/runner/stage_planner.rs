@@ -16,12 +16,12 @@ use crate::{
     stage::stage::{ExchangeStage, SinkStage, Stage},
 };
 
-pub struct StagePlanner {
-    task_tree_buffer: Option<PartitionTaskNode>,
+pub struct PartitionTaskTreeBuilder {
+    root: PartitionTaskNode,
 }
 
-impl StagePlanner {
-    pub fn create_stage<T: PartitionRef>(&mut self, physical_plan: &PhysicalPlan) -> Stage<T> {
+impl PartitionTaskTreeBuilder {
+    pub fn from_physical_plan(physical_plan: &PhysicalPlan) -> Self {
         match physical_plan {
             #[cfg(feature = "python")]
             PhysicalPlan::InMemoryScan(InMemoryScan {
@@ -167,13 +167,12 @@ impl StagePlanner {
     }
 }
 
-pub struct SinkStagePlanner {}
+pub struct StagePlanner {
+    task_tree_buffer: Option<PartitionTaskNode>,
+}
 
-impl SinkStagePlanner {
-    pub fn partial_plan_to_sink_stage<T: PartitionRef>(
-        &self,
-        physical_plan: &PhysicalPlan,
-    ) -> SinkStage<T> {
+impl StagePlanner {
+    pub fn create_stage<T: PartitionRef>(&mut self, physical_plan: &PhysicalPlan) -> Stage<T> {
         match physical_plan {
             #[cfg(feature = "python")]
             PhysicalPlan::InMemoryScan(InMemoryScan {
