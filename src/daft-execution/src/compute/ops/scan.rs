@@ -30,14 +30,14 @@ impl PartitionTaskOp for ScanOp {
 
     fn resource_request_with_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> ResourceRequest {
         todo!()
     }
 
     fn partial_metadata_from_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> PartitionMetadata {
         todo!()
     }

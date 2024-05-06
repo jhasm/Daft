@@ -21,7 +21,7 @@ impl RayPartitionRef {
 }
 
 impl PartitionRef for RayPartitionRef {
-    fn metadata(&self) -> &PartitionMetadata {
+    fn metadata(&self) -> PartitionMetadata {
         // TODO(Clark): Fetch Ray object holding metadata.
         todo!()
     }

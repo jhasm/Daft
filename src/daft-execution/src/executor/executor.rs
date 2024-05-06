@@ -3,8 +3,11 @@ use daft_plan::ResourceRequest;
 
 use crate::compute::partition::{partition_task::Task, PartitionRef};
 
-pub trait Executor<T: PartitionRef> {
+pub trait Executor<T: PartitionRef + Send> {
     fn can_admit(&self, resource_request: &ResourceRequest) -> bool;
 
-    async fn submit_task(&self, task: Task<T>) -> DaftResult<(usize, Vec<T>)>;
+    fn submit_task(
+        &self,
+        task: Task<T>,
+    ) -> impl std::future::Future<Output = DaftResult<(usize, Vec<T>)>> + std::marker::Send;
 }

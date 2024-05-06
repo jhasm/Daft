@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use common_error::DaftResult;
-use daft_dsl::Expr;
+use daft_dsl::{Expr, ExprRef};
 use daft_micropartition::MicroPartition;
 use daft_plan::ResourceRequest;
 
@@ -11,7 +11,7 @@ use super::ops::PartitionTaskOp;
 
 #[derive(Debug)]
 pub struct ProjectOp {
-    projection: Vec<Expr>,
+    projection: Vec<ExprRef>,
     resource_request: ResourceRequest,
 }
 
@@ -36,14 +36,14 @@ impl PartitionTaskOp for ProjectOp {
 
     fn resource_request_with_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> ResourceRequest {
         todo!()
     }
 
     fn partial_metadata_from_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> PartitionMetadata {
         todo!()
     }

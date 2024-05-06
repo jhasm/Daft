@@ -12,20 +12,19 @@ pub struct LocalPartitionRef {
 
 impl LocalPartitionRef {
     pub fn new(partition: Arc<MicroPartition>) -> Self {
+        // TODO(Clark): Error handling for size_bytes().
+        let metadata =
+            PartitionMetadata::new(partition.len(), partition.size_bytes().unwrap().unwrap());
         Self {
             partition,
-            // TODO(Clark): Error handling for size_bytes().
-            metadata: PartitionMetadata::new(
-                partition.len(),
-                partition.size_bytes().unwrap().unwrap(),
-            ),
+            metadata,
         }
     }
 }
 
 impl PartitionRef for LocalPartitionRef {
-    fn metadata(&self) -> &PartitionMetadata {
-        &self.metadata
+    fn metadata(&self) -> PartitionMetadata {
+        self.metadata.clone()
     }
     fn partition(&self) -> Arc<MicroPartition> {
         self.partition.clone()

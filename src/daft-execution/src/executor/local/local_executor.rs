@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use common_error::DaftResult;
 use daft_plan::ResourceRequest;
 use snafu::futures::TryFutureExt;
@@ -13,19 +15,22 @@ use super::local_partition_ref::LocalPartitionRef;
 
 #[derive(Debug)]
 pub struct LocalExecutor {
-    resource_manager: ResourceManager,
+    resource_manager: Arc<Mutex<ResourceManager>>,
 }
 
 impl LocalExecutor {
     pub fn new(resource_capacity: ExecutionResources) -> Self {
-        let resource_manager = ResourceManager::new(resource_capacity);
+        let resource_manager = Mutex::new(ResourceManager::new(resource_capacity)).into();
         Self { resource_manager }
     }
 }
 
 impl Executor<LocalPartitionRef> for LocalExecutor {
     fn can_admit(&self, resource_request: &ResourceRequest) -> bool {
-        self.resource_manager.can_admit(resource_request)
+        self.resource_manager
+            .lock()
+            .unwrap()
+            .can_admit(resource_request)
     }
 
     async fn submit_task(
@@ -33,26 +38,35 @@ impl Executor<LocalPartitionRef> for LocalExecutor {
         task: Task<LocalPartitionRef>,
     ) -> DaftResult<(usize, Vec<LocalPartitionRef>)> {
         let task_id = task.task_id();
-        self.resource_manager.admit(&task.resource_request());
+        let resource_manager = self.resource_manager.clone();
+        resource_manager
+            .lock()
+            .unwrap()
+            .admit(&task.resource_request());
         let result = tokio::spawn(async move {
             let (send, recv) = tokio::sync::oneshot::channel();
             rayon::spawn(move || {
+                // TODO(Clark): Consolidate shared logic between executing scan tasks and executing partition tasks.
                 let result = match task {
                     Task::ScanTask(pt) => {
-                        let (inputs, task_op) = pt.into_executable();
+                        let (inputs, task_op, resource_request) = pt.into_executable();
                         let inputs = inputs
                             .into_iter()
                             .map(|input| input.partition())
                             .collect::<Vec<_>>();
-                        task_op.execute(inputs)
+                        let out = task_op.execute(inputs);
+                        resource_manager.lock().unwrap().release(&resource_request);
+                        out
                     }
                     Task::PartitionTask(pt) => {
-                        let (inputs, task_op) = pt.into_executable();
+                        let (inputs, task_op, resource_request) = pt.into_executable();
                         let inputs = inputs
                             .into_iter()
                             .map(|input| PartitionRef::partition(&input))
                             .collect::<Vec<_>>();
-                        task_op.execute(inputs)
+                        let out = task_op.execute(inputs);
+                        resource_manager.lock().unwrap().release(&resource_request);
+                        out
                     }
                 };
                 let result = result.map(|r| {
@@ -90,7 +104,7 @@ impl Executor<LocalPartitionRef> for SerialExecutor {
         let task_id = task.task_id();
         let result = match task {
             Task::ScanTask(pt) => {
-                let (inputs, task_op) = pt.into_executable();
+                let (inputs, task_op, _) = pt.into_executable();
                 let inputs = inputs
                     .into_iter()
                     .map(|input| input.partition())
@@ -98,7 +112,7 @@ impl Executor<LocalPartitionRef> for SerialExecutor {
                 task_op.execute(inputs)?
             }
             Task::PartitionTask(pt) => {
-                let (inputs, task_op) = pt.into_executable();
+                let (inputs, task_op, _) = pt.into_executable();
                 let inputs = inputs
                     .into_iter()
                     .map(|input| PartitionRef::partition(&input))

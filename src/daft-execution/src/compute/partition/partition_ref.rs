@@ -3,7 +3,7 @@ use std::sync::Arc;
 use daft_micropartition::MicroPartition;
 
 pub trait PartitionRef: std::fmt::Debug + Clone {
-    fn metadata(&self) -> &PartitionMetadata;
+    fn metadata(&self) -> PartitionMetadata;
     fn partition(&self) -> Arc<MicroPartition>;
 }
 

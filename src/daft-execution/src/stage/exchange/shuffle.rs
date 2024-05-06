@@ -15,7 +15,7 @@ use crate::{
 use super::exchange::Exchange;
 
 #[derive(Debug)]
-pub struct ShuffleExchange<T: PartitionRef, E: Executor<T>> {
+pub struct ShuffleExchange<T: PartitionRef + Send, E: Executor<T>> {
     map_task_graph: PartitionTaskNode,
     reduce_task_graph: PartitionTaskNode,
     executor: Arc<E>,

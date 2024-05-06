@@ -8,14 +8,14 @@ use super::{partition_ref::PartitionMetadata, PartitionRef};
 pub trait VirtualPartition {
     type TaskOpInput;
 
-    fn metadata(&self) -> &PartitionMetadata;
+    fn metadata(&self) -> PartitionMetadata;
     fn partition(&self) -> Arc<Self::TaskOpInput>;
 }
 
 impl<T: PartitionRef> VirtualPartition for T {
     type TaskOpInput = MicroPartition;
 
-    fn metadata(&self) -> &PartitionMetadata {
+    fn metadata(&self) -> PartitionMetadata {
         self.metadata()
     }
 
@@ -27,12 +27,12 @@ impl<T: PartitionRef> VirtualPartition for T {
 impl VirtualPartition for Arc<ScanTask> {
     type TaskOpInput = ScanTask;
 
-    fn metadata(&self) -> &PartitionMetadata {
+    fn metadata(&self) -> PartitionMetadata {
         // TODO(Clark): Add API to ScanTask that always returns a non-None estimate.
         let num_rows = self.num_rows().unwrap();
         // TODO(Clark): Add API to ScanTask that always returns a non-None estimate.
         let size_bytes = self.size_bytes().unwrap();
-        &PartitionMetadata::new(num_rows, size_bytes)
+        PartitionMetadata::new(num_rows, size_bytes)
     }
 
     fn partition(&self) -> Arc<Self::TaskOpInput> {

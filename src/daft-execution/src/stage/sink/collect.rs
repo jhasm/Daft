@@ -14,7 +14,7 @@ use crate::{
 use super::sink::Sink;
 
 #[derive(Debug)]
-pub struct CollectSink<T: PartitionRef, E: Executor<T>> {
+pub struct CollectSink<T: PartitionRef + Send, E: Executor<T>> {
     task_graph: PartitionTaskNode,
     executor: Arc<E>,
     _marker: PhantomData<T>,

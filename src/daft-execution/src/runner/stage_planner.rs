@@ -163,6 +163,7 @@ impl PartitionTaskTreeBuilder {
                 iceberg_info,
                 input,
             }) => todo!(),
+            PhysicalPlan::Pivot(_) => todo!(),
         }
     }
 }
@@ -314,6 +315,7 @@ impl StagePlanner {
                 iceberg_info,
                 input,
             }) => todo!(),
+            PhysicalPlan::Pivot(_) => todo!(),
         }
     }
 }

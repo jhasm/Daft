@@ -22,11 +22,13 @@ use super::{
 // TODO(Clark): Add streaming partition task scheduler.
 
 #[derive(Debug)]
-pub struct BulkPartitionTaskScheduler<'a, T: PartitionRef + 'a, E: Executor<T> + 'a> {
+pub struct BulkPartitionTaskScheduler<'a, T: PartitionRef + Send + 'a, E: Executor<T> + 'a> {
     state_root: Arc<PartitionTaskState<T>>,
     sorted_state: Vec<Arc<PartitionTaskState<T>>>,
     running_task_futures: Arc<
-        Mutex<FuturesUnordered<Pin<Box<dyn Future<Output = DaftResult<(usize, Vec<T>)>> + 'a>>>>,
+        tokio::sync::Mutex<
+            FuturesUnordered<Pin<Box<dyn Future<Output = DaftResult<(usize, Vec<T>)>> + 'a>>>,
+        >,
     >,
     inflight_tasks: Arc<Mutex<HashMap<usize, RunningTask<T>>>>,
     inflight_op_task_count: Arc<Mutex<Vec<usize>>>,
@@ -34,7 +36,7 @@ pub struct BulkPartitionTaskScheduler<'a, T: PartitionRef + 'a, E: Executor<T> +
     executor: Arc<E>,
 }
 
-impl<'a, T: PartitionRef, E: Executor<T>> BulkPartitionTaskScheduler<'a, T, E> {
+impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, T, E> {
     pub fn new(
         task_tree_root: PartitionTaskNode,
         mut leaf_inputs: Vec<VirtualPartitionSet<T>>,
@@ -42,12 +44,12 @@ impl<'a, T: PartitionRef, E: Executor<T>> BulkPartitionTaskScheduler<'a, T, E> {
     ) -> Self {
         let state_root = task_tree_to_state_tree::<T>(task_tree_root, &mut leaf_inputs);
         assert!(leaf_inputs.len() == 0);
-        let sorted_state = topological_sort(state_root);
+        let sorted_state = topological_sort(state_root.clone());
         let max_op_id = sorted_state.iter().map(|x| x.op_id()).max().unwrap();
         Self {
             state_root,
             sorted_state,
-            running_task_futures: Arc::new(Mutex::new(FuturesUnordered::new())),
+            running_task_futures: Arc::new(tokio::sync::Mutex::new(FuturesUnordered::new())),
             inflight_tasks: Arc::new(Mutex::new(HashMap::new())),
             inflight_op_task_count: Arc::new(Mutex::new(vec![0; max_op_id + 1])),
             executor,
@@ -176,26 +178,23 @@ impl<'a, T: PartitionRef, E: Executor<T>> BulkPartitionTaskScheduler<'a, T, E> {
             .lock()
             .unwrap()
             .insert(task_id, running_task);
-        let fut = self.executor.submit_task(task.task);
-        self.running_task_futures
-            .lock()
-            .unwrap()
-            .push(Box::pin(fut));
+        let fut = Box::pin(self.executor.submit_task(task.task));
+        self.running_task_futures.lock().await.push(fut);
     }
 
-    pub async fn execute(&'a mut self) -> DaftResult<Vec<VirtualPartitionSet<T>>> {
+    pub async fn execute(self) -> DaftResult<Vec<VirtualPartitionSet<T>>> {
         // TODO(Clark):
         // - Need to support partition task tree building during planning.
-        while !self.running_task_futures.lock().unwrap().is_empty() || self.has_inputs() {
+        while !self.running_task_futures.lock().await.is_empty() || self.has_inputs() {
             let next_task = self.schedule_next_admissible();
             if let Some(task) = next_task {
-                self.submit_task(task);
+                self.submit_task(task).await;
             } else if self.inflight_tasks.lock().unwrap().len() == 0 {
                 // Ensure liveness by always running at least one task.
                 let task = self.schedule_next_submittable().unwrap();
-                self.submit_task(task);
+                self.submit_task(task).await;
             }
-            while let Some(result) = self.running_task_futures.lock().unwrap().next().await {
+            while let Some(result) = self.running_task_futures.lock().await.next().await {
                 let (task_id, result) = result?;
                 let running_task = self
                     .inflight_tasks

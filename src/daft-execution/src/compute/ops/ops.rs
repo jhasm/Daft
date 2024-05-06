@@ -19,11 +19,11 @@ pub trait PartitionTaskOp: std::fmt::Debug + Send + Sync {
     fn resource_request(&self) -> &ResourceRequest;
     fn resource_request_with_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> ResourceRequest;
     fn partial_metadata_from_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> PartitionMetadata;
 }
 

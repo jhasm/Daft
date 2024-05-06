@@ -52,7 +52,7 @@ pub struct FusedOpBuilder<T> {
     resource_request: ResourceRequest,
 }
 
-impl<T: std::fmt::Debug> FusedOpBuilder<T> {
+impl<T: std::fmt::Debug + 'static> FusedOpBuilder<T> {
     pub fn new(source_op: Arc<dyn PartitionTaskOp<Input = T>>) -> Self {
         Self {
             source_op,
@@ -62,8 +62,8 @@ impl<T: std::fmt::Debug> FusedOpBuilder<T> {
     }
 
     pub fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
-        self.fused_ops.push(op);
         self.resource_request = self.resource_request.max(op.resource_request());
+        self.fused_ops.push(op);
     }
 
     pub fn can_add_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
@@ -110,7 +110,7 @@ impl<T: std::fmt::Debug> PartitionTaskOp for FusedPartitionTaskOp<T> {
 
     fn execute(&self, inputs: Vec<Arc<Self::Input>>) -> DaftResult<Vec<Arc<MicroPartition>>> {
         let mut inputs = self.source_op.execute(inputs)?;
-        for op in self.fused_ops {
+        for op in self.fused_ops.iter() {
             inputs = op.execute(inputs)?;
         }
         Ok(inputs)
@@ -126,14 +126,14 @@ impl<T: std::fmt::Debug> PartitionTaskOp for FusedPartitionTaskOp<T> {
 
     fn resource_request_with_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> ResourceRequest {
         todo!()
     }
 
     fn partial_metadata_from_input_metadata(
         &self,
-        input_meta: Vec<&PartitionMetadata>,
+        input_meta: &[PartitionMetadata],
     ) -> PartitionMetadata {
         todo!()
     }

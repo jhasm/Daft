@@ -16,16 +16,19 @@ impl ResourceManager {
 
     pub fn can_admit(&self, resource_request: &ResourceRequest) -> bool {
         let mut slack = self.current_capacity.clone();
-        slack.subtract(self.current_usage);
-        slack.can_hold(resource_request.into())
+        slack.subtract(&self.current_usage);
+        let exec_resource_request = resource_request.into();
+        slack.can_hold(&exec_resource_request)
     }
 
-    pub fn admit(&self, resource_request: &ResourceRequest) {
-        self.current_usage.add(resource_request.into())
+    pub fn admit(&mut self, resource_request: &ResourceRequest) {
+        let exec_resource_request = resource_request.into();
+        self.current_usage.add(&exec_resource_request)
     }
 
-    pub fn release(&self, resource_request: &ResourceRequest) {
-        self.current_usage.subtract(resource_request.into())
+    pub fn release(&mut self, resource_request: &ResourceRequest) {
+        let exec_resource_request = resource_request.into();
+        self.current_usage.subtract(&exec_resource_request)
     }
 
     pub fn update_capacity(&mut self, new_capacity: ExecutionResources) {
@@ -48,19 +51,19 @@ impl ExecutionResources {
             heap_memory_bytes,
         }
     }
-    pub fn can_hold(&self, request: ExecutionResources) -> bool {
+    pub fn can_hold(&self, request: &ExecutionResources) -> bool {
         request.num_cpus <= self.num_cpus
             && request.num_gpus <= self.num_gpus
             && request.heap_memory_bytes <= self.heap_memory_bytes
     }
 
-    pub fn subtract(&mut self, request: ExecutionResources) {
+    pub fn subtract(&mut self, request: &ExecutionResources) {
         self.num_cpus -= request.num_cpus;
         self.num_gpus -= request.num_gpus;
         self.heap_memory_bytes -= request.heap_memory_bytes;
     }
 
-    pub fn add(&mut self, request: ExecutionResources) {
+    pub fn add(&mut self, request: &ExecutionResources) {
         self.num_cpus += request.num_cpus;
         self.num_gpus += request.num_gpus;
         self.heap_memory_bytes += request.heap_memory_bytes;

@@ -15,7 +15,7 @@ use crate::{
 use super::exchange::Exchange;
 
 #[derive(Debug)]
-pub struct CollectExchange<T: PartitionRef, E: Executor<T>> {
+pub struct CollectExchange<T: PartitionRef + Send, E: Executor<T>> {
     task_graph: PartitionTaskNode,
     executor: Arc<E>,
     _marker: PhantomData<T>,

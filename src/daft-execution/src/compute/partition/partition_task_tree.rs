@@ -61,7 +61,7 @@ pub struct PartitionTaskNodeBuilder<T: std::fmt::Debug> {
     task_op_builder: FusedOpBuilder<T>,
 }
 
-impl<T: std::fmt::Debug> PartitionTaskNodeBuilder<T> {
+impl<T: std::fmt::Debug + 'static> PartitionTaskNodeBuilder<T> {
     pub fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
         self.task_op_builder.can_add_op(op)
     }
@@ -129,11 +129,12 @@ impl<T: PartitionRef> PartitionTaskLeafScanState<T> {
     ) -> Self {
         let inputs: VecDeque<Arc<ScanTask>> = inputs.into();
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let outputs = vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()];
         Self {
             task_op,
             op_id,
             inputs: Mutex::new(inputs).into(),
-            outputs: vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()],
+            outputs,
         }
     }
 }
@@ -150,11 +151,12 @@ impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
     pub fn new(task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>, inputs: Vec<T>) -> Self {
         let inputs: VecDeque<T> = inputs.into();
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let outputs = vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()];
         Self {
             task_op,
             op_id,
             inputs: Mutex::new(inputs).into(),
-            outputs: vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()],
+            outputs,
         }
     }
 }
@@ -182,12 +184,13 @@ impl<T: PartitionRef> PartitionTaskInnerState<T> {
             })
             .collect::<Vec<_>>();
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let outputs = vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()];
         Self {
             task_op,
             children,
             op_id,
             inputs,
-            outputs: vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()],
+            outputs,
         }
     }
 }
@@ -211,7 +214,7 @@ impl<T: PartitionRef> PartitionTaskState<T> {
             Self::Inner(inner) => {
                 inner
                     .inputs
-                    .iter_mut()
+                    .iter()
                     .map(|inner_inputs| inner_inputs.lock().unwrap().remove(idx));
             }
         }
