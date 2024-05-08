@@ -1,7 +1,13 @@
-use futures::Stream;
+use async_trait::async_trait;
+use common_error::{DaftError, DaftResult};
+use futures::{Stream, TryStream};
 
 use crate::compute::partition::{virtual_partition::VirtualPartitionSet, PartitionRef};
 
+#[async_trait(?Send)]
 pub trait Sink<T: PartitionRef> {
-    fn run(&self, inputs: Vec<VirtualPartitionSet<T>>) -> Vec<Box<dyn Stream<Item = T>>>;
+    async fn run(
+        self: Box<Self>,
+        inputs: Vec<VirtualPartitionSet<T>>,
+    ) -> DaftResult<Vec<Box<dyn Stream<Item = DaftResult<T>>>>>;
 }

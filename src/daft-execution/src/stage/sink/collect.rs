@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
+use common_error::DaftResult;
 use futures::Stream;
 
 use crate::{
@@ -14,15 +15,18 @@ use crate::{
 use super::sink::Sink;
 
 #[derive(Debug)]
-pub struct CollectSink<T: PartitionRef + Send, E: Executor<T>> {
+pub struct CollectSink<T: PartitionRef, E: Executor<T>> {
     task_graph: PartitionTaskNode,
     executor: Arc<E>,
     _marker: PhantomData<T>,
 }
 
-#[async_trait]
-impl<T: PartitionRef + Send + Sync, E: Executor<T> + Send + Sync> Sink<T> for CollectSink<T, E> {
-    fn run(&self, inputs: Vec<VirtualPartitionSet<T>>) -> Vec<Box<dyn Stream<Item = T>>> {
+#[async_trait(?Send)]
+impl<T: PartitionRef, E: Executor<T>> Sink<T> for CollectSink<T, E> {
+    async fn run(
+        self: Box<Self>,
+        inputs: Vec<VirtualPartitionSet<T>>,
+    ) -> DaftResult<Vec<Box<dyn Stream<Item = DaftResult<T>>>>> {
         todo!()
     }
 }

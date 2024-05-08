@@ -29,13 +29,13 @@ use super::{exchange::exchange::Exchange, sink::sink::Sink};
 static STAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 pub struct ExchangeStage<T: PartitionRef> {
-    op: Box<dyn Exchange<T>>,
-    stage_id: usize,
+    pub op: Box<dyn Exchange<T>>,
+    pub stage_id: usize,
 }
 
 pub struct SinkStage<T: PartitionRef> {
-    op: Box<dyn Sink<T>>,
-    stage_id: usize,
+    pub op: Box<dyn Sink<T>>,
+    pub stage_id: usize,
 }
 
 pub enum Stage<T: PartitionRef> {

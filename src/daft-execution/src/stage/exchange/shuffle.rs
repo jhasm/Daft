@@ -2,6 +2,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use common_error::DaftResult;
+use futures::Future;
 
 use crate::{
     compute::partition::{
@@ -22,24 +23,14 @@ pub struct ShuffleExchange<T: PartitionRef + Send, E: Executor<T>> {
     _marker: PhantomData<T>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<T: PartitionRef + Send + Sync, E: Executor<T> + Send + Sync> Exchange<T>
     for ShuffleExchange<T, E>
 {
-    async fn run(
-        self,
-        inputs: Vec<VirtualPartitionSet<T>>,
-    ) -> DaftResult<Vec<VirtualPartitionSet<T>>> {
+    async fn run(self: Box<Self>, inputs: Vec<VirtualPartitionSet<T>>) -> DaftResult<Vec<Vec<T>>> {
         let map_task_scheduler =
             BulkPartitionTaskScheduler::new(self.map_task_graph, inputs, self.executor.clone());
         let map_outs = map_task_scheduler.execute().await?;
-        let map_outs = map_outs
-            .into_iter()
-            .map(|vps| match vps {
-                VirtualPartitionSet::PartitionRef(prs) => prs,
-                _ => unreachable!("Map outputs must be partition references"),
-            })
-            .collect::<Vec<_>>();
         let reduce_ins = transpose_map_outputs(map_outs);
         let reduce_ins = reduce_ins
             .into_iter()

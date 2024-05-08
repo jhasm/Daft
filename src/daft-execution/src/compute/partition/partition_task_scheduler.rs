@@ -1,6 +1,8 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     pin::Pin,
+    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -22,21 +24,21 @@ use super::{
 // TODO(Clark): Add streaming partition task scheduler.
 
 #[derive(Debug)]
-pub struct BulkPartitionTaskScheduler<'a, T: PartitionRef + Send + 'a, E: Executor<T> + 'a> {
-    state_root: Arc<PartitionTaskState<T>>,
-    sorted_state: Vec<Arc<PartitionTaskState<T>>>,
-    running_task_futures: Arc<
-        tokio::sync::Mutex<
-            FuturesUnordered<Pin<Box<dyn Future<Output = DaftResult<(usize, Vec<T>)>> + 'a>>>,
-        >,
-    >,
-    inflight_tasks: Arc<Mutex<HashMap<usize, RunningTask<T>>>>,
-    inflight_op_task_count: Arc<Mutex<Vec<usize>>>,
+pub struct BulkPartitionTaskScheduler<T: PartitionRef + Send, E: Executor<T>> {
+    state_root: Rc<PartitionTaskState<T>>,
+    sorted_state: Vec<Rc<PartitionTaskState<T>>>,
+    // running_task_futures: Arc<
+    //     tokio::sync::Mutex<
+    //         FuturesUnordered<Pin<Box<dyn Future<Output = DaftResult<(usize, Vec<T>)>> + 'a>>>,
+    //     >,
+    // >,
+    inflight_tasks: HashMap<usize, RunningTask<T>>,
+    inflight_op_task_count: Vec<usize>,
     // TODO(Clark): Add per-op resource utilization tracking.
     executor: Arc<E>,
 }
 
-impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, T, E> {
+impl<T: PartitionRef + Send, E: Executor<T> + Send> BulkPartitionTaskScheduler<T, E> {
     pub fn new(
         task_tree_root: PartitionTaskNode,
         mut leaf_inputs: Vec<VirtualPartitionSet<T>>,
@@ -49,9 +51,9 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
         Self {
             state_root,
             sorted_state,
-            running_task_futures: Arc::new(tokio::sync::Mutex::new(FuturesUnordered::new())),
-            inflight_tasks: Arc::new(Mutex::new(HashMap::new())),
-            inflight_op_task_count: Arc::new(Mutex::new(vec![0; max_op_id + 1])),
+            // running_task_futures: Arc::new(tokio::sync::Mutex::new(FuturesUnordered::new())),
+            inflight_tasks: HashMap::new(),
+            inflight_op_task_count: vec![0; max_op_id + 1],
             executor,
         }
     }
@@ -72,8 +74,7 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
             .flat_map(|(node_idx, t)| match t.as_ref() {
                 PartitionTaskState::LeafScan(scan_state) => scan_state
                     .inputs
-                    .lock()
-                    .unwrap()
+                    .borrow()
                     .iter()
                     .enumerate()
                     .map(|(input_idx, input)| {
@@ -89,8 +90,7 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
                     .collect::<Vec<_>>(),
                 PartitionTaskState::LeafMemory(memory_state) => memory_state
                     .inputs
-                    .lock()
-                    .unwrap()
+                    .borrow()
                     .iter()
                     .enumerate()
                     .map(|(input_idx, input)| {
@@ -106,8 +106,7 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
                     .collect::<Vec<_>>(),
                 PartitionTaskState::Inner(inner_state) => match inner_state.inputs.len() {
                     1 => inner_state.inputs[0]
-                        .lock()
-                        .unwrap()
+                        .borrow()
                         .iter()
                         .enumerate()
                         .map(|(input_idx, input)| {
@@ -124,10 +123,9 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
                         })
                         .collect::<Vec<_>>(),
                     2 => inner_state.inputs[0]
-                        .lock()
-                        .unwrap()
+                        .borrow()
                         .iter()
-                        .zip(inner_state.inputs[1].lock().unwrap().iter())
+                        .zip(inner_state.inputs[1].borrow().iter())
                         .enumerate()
                         .map(|(input_idx, (l, r))| {
                             let partition_task = PartitionTask::new(
@@ -147,15 +145,18 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
             })
     }
 
-    fn schedule_next_admissible(&self) -> Option<SubmittableTask<T>> {
+    async fn schedule_next_admissible(&self) -> Option<SubmittableTask<T>> {
         let submittable = self.submittable();
-        let admissible = submittable.filter(|t| self.executor.can_admit(t.task.resource_request()));
-        // TODO(Clark): Use a better metric than output queue size.
-        admissible.min_by(|x, y| {
-            self.sorted_state[x.node_idx]
-                .num_queued_outputs()
-                .cmp(&self.sorted_state[y.node_idx].num_queued_outputs())
-        })
+        {
+            let admissible =
+                submittable.filter(|t| self.executor.can_admit(t.task.resource_request()));
+            // TODO(Clark): Use a better metric than output queue size.
+            admissible.min_by(|x, y| {
+                self.sorted_state[x.node_idx]
+                    .num_queued_outputs()
+                    .cmp(&self.sorted_state[y.node_idx].num_queued_outputs())
+            })
+        }
     }
 
     fn schedule_next_submittable(&self) -> Option<SubmittableTask<T>> {
@@ -168,54 +169,60 @@ impl<'a, T: PartitionRef + Send, E: Executor<T>> BulkPartitionTaskScheduler<'a, 
         })
     }
 
-    async fn submit_task(&'a self, task: SubmittableTask<T>) {
+    fn submit_task(
+        &mut self,
+        task: SubmittableTask<T>,
+    ) -> impl Future<Output = DaftResult<(usize, Vec<T>)>> {
         let task_id = task.task.task_id();
-        self.inflight_op_task_count.lock().unwrap()[task.op_id] += 1;
+        self.inflight_op_task_count[task.op_id] += 1;
         let node = self.sorted_state[task.node_idx].clone();
         node.pop_input(task.input_idx);
         let running_task = RunningTask::new(node, task_id, task.op_id);
-        self.inflight_tasks
-            .lock()
-            .unwrap()
-            .insert(task_id, running_task);
-        let fut = Box::pin(self.executor.submit_task(task.task));
-        self.running_task_futures.lock().await.push(fut);
+        self.inflight_tasks.insert(task_id, running_task);
+        let t = task.task;
+        let e = self.executor.clone();
+        // self.executor.submit_task(t).await
+        async move { e.submit_task(t).await }
+        // let fut = Box::pin(self.executor.submit_task(task.task));
+        // self.running_task_futures.lock().await.push(fut);
     }
 
-    pub async fn execute(self) -> DaftResult<Vec<VirtualPartitionSet<T>>> {
-        // TODO(Clark):
-        // - Need to support partition task tree building during planning.
-        while !self.running_task_futures.lock().await.is_empty() || self.has_inputs() {
-            let next_task = self.schedule_next_admissible();
-            if let Some(task) = next_task {
-                self.submit_task(task).await;
-            } else if self.inflight_tasks.lock().unwrap().len() == 0 {
-                // Ensure liveness by always running at least one task.
-                let task = self.schedule_next_submittable().unwrap();
-                self.submit_task(task).await;
+    pub async fn execute(mut self) -> DaftResult<Vec<Vec<T>>> {
+        let mut running_task_futures = FuturesUnordered::new();
+        while !running_task_futures.is_empty() || self.has_inputs() {
+            let next_task = self.schedule_next_admissible().await;
+            let next_task = next_task.or_else(|| {
+                if running_task_futures.is_empty() {
+                    Some(self.schedule_next_submittable().unwrap())
+                } else {
+                    None
+                }
+            });
+            let fut = if let Some(task) = next_task {
+                Some((&mut self).submit_task(task))
+            } else {
+                None
+            };
+            if let Some(fut) = fut {
+                running_task_futures.push(fut);
             }
-            while let Some(result) = self.running_task_futures.lock().await.next().await {
+            while let Some(result) = running_task_futures.next().await {
                 let (task_id, result) = result?;
-                let running_task = self
-                    .inflight_tasks
-                    .lock()
-                    .unwrap()
-                    .remove(&task_id)
-                    .unwrap();
-                self.inflight_op_task_count.lock().unwrap()[running_task.op_id] -= 1;
+                let running_task = self.inflight_tasks.remove(&task_id).unwrap();
+                self.inflight_op_task_count[running_task.op_id] -= 1;
                 running_task
                     .node
                     .outputs()
-                    .iter_mut()
+                    .iter()
                     .zip(result.into_iter())
-                    .map(|(out, r)| out.lock().unwrap().push_front(r));
+                    .for_each(|(out, r)| out.borrow_mut().push_front(r));
             }
         }
         Ok(self
             .state_root
             .outputs()
             .into_iter()
-            .map(|v| VirtualPartitionSet::PartitionRef(v.lock().unwrap().make_contiguous().into()))
+            .map(|v| v.borrow_mut().make_contiguous().into())
             .collect::<Vec<_>>())
     }
 }
@@ -241,13 +248,13 @@ impl<T: PartitionRef> SubmittableTask<T> {
 
 #[derive(Debug)]
 struct RunningTask<T: PartitionRef> {
-    node: Arc<PartitionTaskState<T>>,
+    node: Rc<PartitionTaskState<T>>,
     task_id: usize,
     op_id: usize,
 }
 
 impl<T: PartitionRef> RunningTask<T> {
-    fn new(node: Arc<PartitionTaskState<T>>, task_id: usize, op_id: usize) -> Self {
+    fn new(node: Rc<PartitionTaskState<T>>, task_id: usize, op_id: usize) -> Self {
         Self {
             node,
             task_id,

@@ -21,14 +21,11 @@ pub struct CollectExchange<T: PartitionRef + Send, E: Executor<T>> {
     _marker: PhantomData<T>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<T: PartitionRef + Send + Sync, E: Executor<T> + Send + Sync> Exchange<T>
     for CollectExchange<T, E>
 {
-    async fn run(
-        self,
-        inputs: Vec<VirtualPartitionSet<T>>,
-    ) -> DaftResult<Vec<VirtualPartitionSet<T>>> {
+    async fn run(self: Box<Self>, inputs: Vec<VirtualPartitionSet<T>>) -> DaftResult<Vec<Vec<T>>> {
         let task_scheduler =
             BulkPartitionTaskScheduler::new(self.task_graph, inputs, self.executor.clone());
         task_scheduler.execute().await

@@ -1,5 +1,7 @@
 use std::{
+    cell::RefCell,
     collections::VecDeque,
+    rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
@@ -118,8 +120,8 @@ static OP_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 pub struct PartitionTaskLeafScanState<T: PartitionRef> {
     pub task_op: Arc<dyn PartitionTaskOp<Input = ScanTask>>,
     pub op_id: usize,
-    pub inputs: Arc<Mutex<VecDeque<Arc<ScanTask>>>>,
-    pub outputs: Vec<Arc<Mutex<VecDeque<T>>>>,
+    pub inputs: Rc<RefCell<VecDeque<Arc<ScanTask>>>>,
+    pub outputs: Vec<Rc<RefCell<VecDeque<T>>>>,
 }
 
 impl<T: PartitionRef> PartitionTaskLeafScanState<T> {
@@ -127,13 +129,13 @@ impl<T: PartitionRef> PartitionTaskLeafScanState<T> {
         task_op: Arc<dyn PartitionTaskOp<Input = ScanTask>>,
         inputs: Vec<Arc<ScanTask>>,
     ) -> Self {
-        let inputs: VecDeque<Arc<ScanTask>> = inputs.into();
+        let inputs = Rc::new(RefCell::new(VecDeque::from(inputs)));
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()];
+        let outputs = vec![Rc::new(RefCell::new(VecDeque::new())); task_op.num_outputs()];
         Self {
             task_op,
             op_id,
-            inputs: Mutex::new(inputs).into(),
+            inputs,
             outputs,
         }
     }
@@ -143,19 +145,19 @@ impl<T: PartitionRef> PartitionTaskLeafScanState<T> {
 pub struct PartitionTaskLeafMemoryState<T: PartitionRef> {
     pub task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>,
     pub op_id: usize,
-    pub inputs: Arc<Mutex<VecDeque<T>>>,
-    pub outputs: Vec<Arc<Mutex<VecDeque<T>>>>,
+    pub inputs: Rc<RefCell<VecDeque<T>>>,
+    pub outputs: Vec<Rc<RefCell<VecDeque<T>>>>,
 }
 
 impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
     pub fn new(task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>, inputs: Vec<T>) -> Self {
-        let inputs: VecDeque<T> = inputs.into();
+        let inputs = Rc::new(RefCell::new(VecDeque::from(inputs)));
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()];
+        let outputs = vec![Rc::new(RefCell::new(VecDeque::new())); task_op.num_outputs()];
         Self {
             task_op,
             op_id,
-            inputs: Mutex::new(inputs).into(),
+            inputs,
             outputs,
         }
     }
@@ -164,16 +166,16 @@ impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
 #[derive(Debug)]
 pub struct PartitionTaskInnerState<T: PartitionRef> {
     pub task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>,
-    pub children: Vec<Arc<PartitionTaskState<T>>>,
+    pub children: Vec<Rc<PartitionTaskState<T>>>,
     pub op_id: usize,
-    pub inputs: Vec<Arc<Mutex<VecDeque<T>>>>,
-    pub outputs: Vec<Arc<Mutex<VecDeque<T>>>>,
+    pub inputs: Vec<Rc<RefCell<VecDeque<T>>>>,
+    pub outputs: Vec<Rc<RefCell<VecDeque<T>>>>,
 }
 
 impl<T: PartitionRef> PartitionTaskInnerState<T> {
     pub fn new(
         task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>,
-        children: Vec<Arc<PartitionTaskState<T>>>,
+        children: Vec<Rc<PartitionTaskState<T>>>,
     ) -> Self {
         let inputs = children
             .iter()
@@ -184,7 +186,7 @@ impl<T: PartitionRef> PartitionTaskInnerState<T> {
             })
             .collect::<Vec<_>>();
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![Arc::new(Mutex::new(VecDeque::new())); task_op.num_outputs()];
+        let outputs = vec![Rc::new(RefCell::new(VecDeque::new())); task_op.num_outputs()];
         Self {
             task_op,
             children,
@@ -204,22 +206,22 @@ pub enum PartitionTaskState<T: PartitionRef> {
 
 impl<T: PartitionRef> PartitionTaskState<T> {
     pub fn pop_input(&self, idx: usize) {
+        // TODO(Clark): This is currently O(n), we should ideally make this O(1).
         match self {
             Self::LeafScan(leaf) => {
-                leaf.inputs.lock().unwrap().remove(idx);
+                leaf.inputs.borrow_mut().remove(idx);
             }
             Self::LeafMemory(leaf) => {
-                leaf.inputs.lock().unwrap().remove(idx);
+                leaf.inputs.borrow_mut().remove(idx);
             }
             Self::Inner(inner) => {
-                inner
-                    .inputs
-                    .iter()
-                    .map(|inner_inputs| inner_inputs.lock().unwrap().remove(idx));
+                inner.inputs.iter().for_each(|inner_inputs| {
+                    inner_inputs.borrow_mut().remove(idx);
+                });
             }
         }
     }
-    pub fn outputs(&self) -> Vec<Arc<Mutex<VecDeque<T>>>> {
+    pub fn outputs(&self) -> Vec<Rc<RefCell<VecDeque<T>>>> {
         match self {
             Self::LeafScan(leaf) => leaf.outputs.clone(),
             Self::LeafMemory(leaf) => leaf.outputs.clone(),
@@ -229,12 +231,12 @@ impl<T: PartitionRef> PartitionTaskState<T> {
 
     pub fn num_queued_inputs(&self) -> usize {
         match self {
-            Self::LeafScan(leaf) => leaf.inputs.lock().unwrap().len(),
-            Self::LeafMemory(leaf) => leaf.inputs.lock().unwrap().len(),
+            Self::LeafScan(leaf) => leaf.inputs.borrow().len(),
+            Self::LeafMemory(leaf) => leaf.inputs.borrow().len(),
             Self::Inner(inner) => inner
                 .inputs
                 .iter()
-                .map(|input_lane| input_lane.lock().unwrap().len())
+                .map(|input_lane| input_lane.borrow().len())
                 .sum(),
         }
     }
@@ -244,17 +246,17 @@ impl<T: PartitionRef> PartitionTaskState<T> {
             Self::LeafScan(leaf) => leaf
                 .outputs
                 .iter()
-                .map(|output_lane| output_lane.lock().unwrap().len())
+                .map(|output_lane| output_lane.borrow().len())
                 .sum(),
             Self::LeafMemory(leaf) => leaf
                 .outputs
                 .iter()
-                .map(|output_lane| output_lane.lock().unwrap().len())
+                .map(|output_lane| output_lane.borrow().len())
                 .sum(),
             Self::Inner(inner) => inner
                 .outputs
                 .iter()
-                .map(|output_lane| output_lane.lock().unwrap().len())
+                .map(|output_lane| output_lane.borrow().len())
                 .sum(),
         }
     }
@@ -271,7 +273,7 @@ impl<T: PartitionRef> PartitionTaskState<T> {
 pub fn task_tree_to_state_tree<T: PartitionRef>(
     root: PartitionTaskNode,
     leaf_inputs: &mut Vec<VirtualPartitionSet<T>>,
-) -> Arc<PartitionTaskState<T>> {
+) -> Rc<PartitionTaskState<T>> {
     match root {
         PartitionTaskNode::LeafScan(PartitionTaskLeafScanNode { task_op }) => {
             let partition_set = leaf_inputs.remove(0);
@@ -312,8 +314,8 @@ pub fn task_tree_to_state_tree<T: PartitionRef>(
 }
 
 pub fn topological_sort<T: PartitionRef>(
-    root: Arc<PartitionTaskState<T>>,
-) -> Vec<Arc<PartitionTaskState<T>>> {
+    root: Rc<PartitionTaskState<T>>,
+) -> Vec<Rc<PartitionTaskState<T>>> {
     let mut stack = VecDeque::new();
     in_order(root, &mut stack);
     let out = stack.make_contiguous();
@@ -322,8 +324,8 @@ pub fn topological_sort<T: PartitionRef>(
 }
 
 fn in_order<T: PartitionRef>(
-    node: Arc<PartitionTaskState<T>>,
-    stack: &mut VecDeque<Arc<PartitionTaskState<T>>>,
+    node: Rc<PartitionTaskState<T>>,
+    stack: &mut VecDeque<Rc<PartitionTaskState<T>>>,
 ) {
     match node.as_ref() {
         PartitionTaskState::Inner(PartitionTaskInnerState { children, .. }) => {
