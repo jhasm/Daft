@@ -15,7 +15,7 @@ use crate::compute::ops::{op_builder::FusedOpBuilder, ops::PartitionTaskOp};
 
 use super::{virtual_partition::VirtualPartitionSet, PartitionRef};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PartitionTaskLeafScanNode {
     task_op: Arc<dyn PartitionTaskOp<Input = ScanTask>>,
 }
@@ -26,18 +26,35 @@ impl PartitionTaskLeafScanNode {
     }
 }
 
-#[derive(Debug)]
+impl<T> From<T> for PartitionTaskLeafScanNode
+where
+    T: PartitionTaskOp<Input = ScanTask> + 'static,
+{
+    fn from(value: T) -> Self {
+        Self::new(Arc::new(value))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PartitionTaskLeafMemoryNode {
-    task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>,
+    task_op: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
 }
 
 impl PartitionTaskLeafMemoryNode {
-    pub fn new(task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
+    pub fn new(task_op: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>) -> Self {
         Self { task_op }
     }
 }
 
-#[derive(Debug)]
+impl From<Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>>
+    for PartitionTaskLeafMemoryNode
+{
+    fn from(value: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>) -> Self {
+        Self::new(value)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PartitionTaskInnerNode {
     inputs: Vec<PartitionTaskNode>,
     task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>,
@@ -52,31 +69,144 @@ impl PartitionTaskInnerNode {
     }
 }
 
-#[derive(Debug)]
+impl<T> From<(T, Vec<PartitionTaskNode>)> for PartitionTaskInnerNode
+where
+    T: PartitionTaskOp<Input = MicroPartition> + 'static,
+{
+    fn from(value: (T, Vec<PartitionTaskNode>)) -> Self {
+        let (task_op, inputs) = value;
+        Self::new(Arc::new(task_op), inputs)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum PartitionTaskNode {
     LeafScan(PartitionTaskLeafScanNode),
     LeafMemory(PartitionTaskLeafMemoryNode),
     Inner(PartitionTaskInnerNode),
 }
 
-pub struct PartitionTaskNodeBuilder<T: std::fmt::Debug> {
-    task_op_builder: FusedOpBuilder<T>,
+// pub struct PartitionTaskTreeBuilder {
+//     pub node_builder: PartitionTaskNodeBuilder,
+//     pub root: Option<PartitionTaskNode>,
+// }
+
+// impl PartitionTaskTreeBuilder {
+//     pub fn new(node_builder: PartitionTaskNodeBuilder) -> Self {
+//         Self {
+//             node_builder,
+//             root: None,
+//         }
+//     }
+// }
+
+#[derive(Debug, Clone)]
+pub enum PartitionTaskNodeBuilder {
+    LeafScan(FusedOpBuilder<ScanTask>),
+    LeafMemory(Option<FusedOpBuilder<MicroPartition>>),
+    Inner(Vec<PartitionTaskNode>, FusedOpBuilder<MicroPartition>),
 }
 
-impl<T: std::fmt::Debug + 'static> PartitionTaskNodeBuilder<T> {
-    pub fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
-        self.task_op_builder.can_add_op(op)
+impl PartitionTaskNodeBuilder {
+    pub fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
+        match self {
+            Self::LeafScan(builder) => builder.add_op(op),
+            Self::LeafMemory(Some(builder)) | Self::Inner(_, builder) => builder.add_op(op),
+            Self::LeafMemory(ref mut builder) => {
+                builder.insert(FusedOpBuilder::new(op));
+            }
+        }
     }
 
-    pub fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
-        self.task_op_builder.add_op(op)
+    pub fn can_add_op(&self, op: &dyn PartitionTaskOp<Input = MicroPartition>) -> bool {
+        match self {
+            Self::LeafScan(builder) => builder.can_add_op(op),
+            Self::LeafMemory(Some(builder)) | Self::Inner(_, builder) => builder.can_add_op(op),
+            Self::LeafMemory(None) => true,
+        }
     }
 
     pub fn build(self) -> PartitionTaskNode {
-        let task_op = self.task_op_builder.build();
-        todo!()
+        match self {
+            Self::LeafScan(builder) => {
+                PartitionTaskNode::LeafScan(PartitionTaskLeafScanNode::new(builder.build()))
+            }
+            Self::LeafMemory(builder) => PartitionTaskNode::LeafMemory(
+                PartitionTaskLeafMemoryNode::new(builder.map(|b| b.build())),
+            ),
+            Self::Inner(inputs, builder) => {
+                PartitionTaskNode::Inner(PartitionTaskInnerNode::new(builder.build(), inputs))
+            }
+        }
+    }
+
+    pub fn fuse_or_link(mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
+        if self.can_add_op(op.as_ref()) {
+            self.add_op(op.clone());
+            self
+        } else {
+            let op_builder = FusedOpBuilder::new(op);
+            let child_node = self.build();
+            PartitionTaskNodeBuilder::Inner(vec![child_node], op_builder)
+        }
     }
 }
+
+// pub trait PartitionTaskNodeBuilder {
+//     type Input;
+//     fn new(op: Arc<dyn PartitionTaskOp<Input = Self::Input>>) -> Self;
+//     fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool;
+//     fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>);
+//     fn build(self) -> PartitionTaskNode;
+// }
+
+// pub struct InnerTaskNodeBuilder {
+//     task_op_builder: FusedOpBuilder<MicroPartition>,
+// }
+
+// impl InnerTaskNodeBuilder {
+//     pub fn new(op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
+//         let task_op_builder = FusedOpBuilder::<MicroPartition>::new(op);
+//         Self { task_op_builder }
+//     }
+
+//     pub fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
+//         self.task_op_builder.can_add_op(op)
+//     }
+
+//     pub fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
+//         self.task_op_builder.add_op(op)
+//     }
+
+//     pub fn build(self) -> PartitionTaskNode {
+//         let task_op = self.task_op_builder.build();
+//         todo!()
+//     }
+// }
+// pub struct PartitionTaskNodeBuilder {
+//     task_op_builder: FusedOpBuilder<MicroPartition>,
+// }
+
+// impl PartitionTaskNodeBuilder {
+//     pub fn new(op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
+//         let task_op_builder = FusedOpBuilder::<MicroPartition>::new(op);
+//         Self { task_op_builder }
+//     }
+
+//     pub fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
+//         self.task_op_builder.can_add_op(op)
+//     }
+
+//     pub fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
+//         self.task_op_builder.add_op(op)
+//     }
+
+//     pub fn build(self) -> PartitionTaskNode {
+//         let task_op = self.task_op_builder.build();
+//         let node = PartitionTaskNode::
+//         todo!()
+//     }
+// }
 
 // pub struct PartitionTaskTreeBuilder {
 //     task_tree: Option<PartitionTaskNode>,
@@ -141,19 +271,35 @@ impl<T: PartitionRef> PartitionTaskLeafScanState<T> {
     }
 }
 
+impl<T: PartitionRef, P> From<(P, Vec<Arc<ScanTask>>)> for PartitionTaskLeafScanState<T>
+where
+    P: PartitionTaskOp<Input = ScanTask> + 'static,
+{
+    fn from(value: (P, Vec<Arc<ScanTask>>)) -> Self {
+        let (task_op, inputs) = value;
+        Self::new(Arc::new(task_op), inputs)
+    }
+}
+
 #[derive(Debug)]
 pub struct PartitionTaskLeafMemoryState<T: PartitionRef> {
-    pub task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>,
+    pub task_op: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
     pub op_id: usize,
     pub inputs: Rc<RefCell<VecDeque<T>>>,
     pub outputs: Vec<Rc<RefCell<VecDeque<T>>>>,
 }
 
 impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
-    pub fn new(task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>, inputs: Vec<T>) -> Self {
+    pub fn new(
+        task_op: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
+        inputs: Vec<T>,
+    ) -> Self {
         let inputs = Rc::new(RefCell::new(VecDeque::from(inputs)));
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![Rc::new(RefCell::new(VecDeque::new())); task_op.num_outputs()];
+        let outputs = vec![
+            Rc::new(RefCell::new(VecDeque::new()));
+            task_op.as_ref().map_or(1, |op| op.num_outputs())
+        ];
         Self {
             task_op,
             op_id,
@@ -162,6 +308,33 @@ impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
         }
     }
 }
+
+impl<T: PartitionRef>
+    From<(
+        Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
+        Vec<T>,
+    )> for PartitionTaskLeafMemoryState<T>
+{
+    fn from(
+        value: (
+            Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
+            Vec<T>,
+        ),
+    ) -> Self {
+        let (task_op, inputs) = value;
+        Self::new(task_op, inputs)
+    }
+}
+
+// impl<T: PartitionRef, P> From<(Option<P>, Vec<T>)> for PartitionTaskLeafMemoryState<T>
+// where
+//     P: PartitionTaskOp<Input = MicroPartition> + 'static,
+// {
+//     fn from(value: (Option<P>, Vec<T>)) -> Self {
+//         let (task_op, inputs) = value;
+//         Self::new(task_op.map(Arc::new), inputs)
+//     }
+// }
 
 #[derive(Debug)]
 pub struct PartitionTaskInnerState<T: PartitionRef> {
@@ -194,6 +367,16 @@ impl<T: PartitionRef> PartitionTaskInnerState<T> {
             inputs,
             outputs,
         }
+    }
+}
+
+impl<T: PartitionRef, P> From<(P, Vec<Rc<PartitionTaskState<T>>>)> for PartitionTaskInnerState<T>
+where
+    P: PartitionTaskOp<Input = MicroPartition> + 'static,
+{
+    fn from(value: (P, Vec<Rc<PartitionTaskState<T>>>)) -> Self {
+        let (task_op, inputs) = value;
+        Self::new(Arc::new(task_op), inputs)
     }
 }
 
@@ -270,6 +453,61 @@ impl<T: PartitionRef> PartitionTaskState<T> {
     }
 }
 
+#[derive(Debug)]
+pub enum PartitionTaskStateBuilder<T: PartitionRef> {
+    LeafScan(Vec<Arc<ScanTask>>, FusedOpBuilder<ScanTask>),
+    LeafMemory(Vec<T>, Option<FusedOpBuilder<MicroPartition>>),
+    Inner(
+        Vec<Rc<PartitionTaskState<T>>>,
+        FusedOpBuilder<MicroPartition>,
+    ),
+}
+
+impl<T: PartitionRef> PartitionTaskStateBuilder<T> {
+    pub fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
+        match self {
+            Self::LeafScan(_, builder) => builder.add_op(op),
+            Self::LeafMemory(_, Some(builder)) | Self::Inner(_, builder) => builder.add_op(op),
+            Self::LeafMemory(_, ref mut builder) => {
+                builder.insert(FusedOpBuilder::new(op));
+            }
+        }
+    }
+
+    pub fn can_add_op(&self, op: &dyn PartitionTaskOp<Input = MicroPartition>) -> bool {
+        match self {
+            Self::LeafScan(_, builder) => builder.can_add_op(op),
+            Self::LeafMemory(_, Some(builder)) | Self::Inner(_, builder) => builder.can_add_op(op),
+            Self::LeafMemory(_, None) => true,
+        }
+    }
+
+    pub fn build(self) -> PartitionTaskState<T> {
+        match self {
+            Self::LeafScan(inputs, builder) => PartitionTaskState::LeafScan(
+                PartitionTaskLeafScanState::new(builder.build(), inputs),
+            ),
+            Self::LeafMemory(inputs, builder) => PartitionTaskState::LeafMemory(
+                PartitionTaskLeafMemoryState::new(builder.map(|b| b.build()), inputs),
+            ),
+            Self::Inner(inputs, builder) => {
+                PartitionTaskState::Inner(PartitionTaskInnerState::new(builder.build(), inputs))
+            }
+        }
+    }
+
+    pub fn fuse_or_link(mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
+        if self.can_add_op(op.as_ref()) {
+            self.add_op(op.clone());
+            self
+        } else {
+            let op_builder = FusedOpBuilder::new(op);
+            let child_node = self.build();
+            PartitionTaskStateBuilder::Inner(vec![child_node.into()], op_builder)
+        }
+    }
+}
+
 pub fn task_tree_to_state_tree<T: PartitionRef>(
     root: PartitionTaskNode,
     leaf_inputs: &mut Vec<VirtualPartitionSet<T>>,
@@ -292,10 +530,18 @@ pub fn task_tree_to_state_tree<T: PartitionRef>(
         PartitionTaskNode::LeafMemory(PartitionTaskLeafMemoryNode { task_op }) => {
             let partition_set = leaf_inputs.remove(0);
             if let VirtualPartitionSet::PartitionRef(part_refs) = partition_set {
-                PartitionTaskState::LeafMemory(PartitionTaskLeafMemoryState::<T>::new(
-                    task_op, part_refs,
-                ))
-                .into()
+                let memory_state =
+                    PartitionTaskLeafMemoryState::<T>::new(task_op.clone(), part_refs);
+                if task_op.is_none() {
+                    // If no task op for this in-memory scan, we can immediately push all inputs into the output queue.
+                    // TODO(Clark): We should probably lift this into the partition task scheduler, and have it be a generic procedure of
+                    // identifying no-op or metadata-only tasks and directly pushing inputs into outputs.
+                    assert!(memory_state.outputs.len() == 1);
+                    memory_state.outputs[0]
+                        .borrow_mut()
+                        .extend(memory_state.inputs.borrow_mut().drain(..));
+                }
+                PartitionTaskState::LeafMemory(memory_state).into()
             } else {
                 panic!(
                     "Leaf input for in-memory node must be in-memory references: {:?}",

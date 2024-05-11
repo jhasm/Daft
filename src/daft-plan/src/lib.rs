@@ -25,6 +25,7 @@ use daft_scan::file_format::FileFormat;
 pub use logical_plan::{LogicalPlan, LogicalPlanRef};
 pub use partitioning::ClusteringSpec;
 pub use physical_plan::{PhysicalPlan, PhysicalPlanScheduler};
+pub use physical_planner::QueryStageOutput;
 pub use resource_request::ResourceRequest;
 pub use sink_info::OutputFileInfo;
 pub use source_info::{FileInfo, FileInfos, InMemoryInfo};

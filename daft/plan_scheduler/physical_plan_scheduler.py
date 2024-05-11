@@ -1,9 +1,16 @@
 from __future__ import annotations
+from typing import Iterator
 
 from daft.daft import AdaptivePhysicalPlanScheduler as _AdaptivePhysicalPlanScheduler
 from daft.daft import PhysicalPlanScheduler as _PhysicalPlanScheduler
 from daft.execution import physical_plan
-from daft.runners.partitioning import PartitionCacheEntry, PartitionT
+from daft.runners.partitioning import (
+    MaterializedResult,
+    PartitionCacheEntry,
+    PartitionT,
+)
+from daft.runners.pyrunner import PyMaterializedResult
+from daft.table.micropartition import MicroPartition
 
 
 class PhysicalPlanScheduler:
@@ -29,8 +36,22 @@ class PhysicalPlanScheduler:
     def __repr__(self) -> str:
         return self._scheduler.repr_ascii(simple=False)
 
-    def to_partition_tasks(self, psets: dict[str, list[PartitionT]]) -> physical_plan.MaterializedPhysicalPlan:
+    def to_partition_tasks(
+        self, psets: dict[str, list[PartitionT]]
+    ) -> physical_plan.MaterializedPhysicalPlan:
         return physical_plan.materialize(self._scheduler.to_partition_tasks(psets))
+
+    def run(
+        self, psets: dict[str, list[PyMaterializedResult]]
+    ) -> Iterator[PyMaterializedResult]:
+        psets = {
+            part_id: [part.partition()._micropartition for part in parts]
+            for part_id, parts in psets.items()
+        }
+        return (
+            PyMaterializedResult(MicroPartition._from_pymicropartition(part))
+            for part in self._scheduler.run(psets)
+        )
 
 
 class AdaptivePhysicalPlanScheduler:

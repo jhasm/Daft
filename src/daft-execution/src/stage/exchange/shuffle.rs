@@ -16,17 +16,30 @@ use crate::{
 use super::exchange::Exchange;
 
 #[derive(Debug)]
-pub struct ShuffleExchange<T: PartitionRef + Send, E: Executor<T>> {
+pub struct ShuffleExchange<T: PartitionRef, E: Executor<T>> {
     map_task_graph: PartitionTaskNode,
     reduce_task_graph: PartitionTaskNode,
     executor: Arc<E>,
     _marker: PhantomData<T>,
 }
 
+impl<T: PartitionRef, E: Executor<T>> ShuffleExchange<T, E> {
+    pub fn new(
+        map_task_graph: PartitionTaskNode,
+        reduce_task_graph: PartitionTaskNode,
+        executor: Arc<E>,
+    ) -> Self {
+        Self {
+            map_task_graph,
+            reduce_task_graph,
+            executor,
+            _marker: PhantomData,
+        }
+    }
+}
+
 #[async_trait(?Send)]
-impl<T: PartitionRef + Send + Sync, E: Executor<T> + Send + Sync> Exchange<T>
-    for ShuffleExchange<T, E>
-{
+impl<T: PartitionRef, E: Executor<T>> Exchange<T> for ShuffleExchange<T, E> {
     async fn run(self: Box<Self>, inputs: Vec<VirtualPartitionSet<T>>) -> DaftResult<Vec<Vec<T>>> {
         let map_task_scheduler =
             BulkPartitionTaskScheduler::new(self.map_task_graph, inputs, self.executor.clone());

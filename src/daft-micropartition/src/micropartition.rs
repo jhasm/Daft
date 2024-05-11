@@ -619,6 +619,10 @@ impl MicroPartition {
         self.schema.names()
     }
 
+    pub fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
     pub fn len(&self) -> usize {
         self.metadata.length
     }
@@ -660,7 +664,7 @@ impl MicroPartition {
         }
     }
 
-    pub(crate) fn concat_or_get(&self, io_stats: IOStatsRef) -> crate::Result<Arc<Vec<Table>>> {
+    pub fn concat_or_get(&self, io_stats: IOStatsRef) -> crate::Result<Arc<Vec<Table>>> {
         let tables = self.tables_or_read(io_stats)?;
         if tables.len() <= 1 {
             return Ok(tables);

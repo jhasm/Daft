@@ -243,7 +243,7 @@ impl TreeNodeRewriter for ReplacePlaceholdersWithMaterializedResult {
     }
 }
 
-pub(super) enum QueryStageOutput {
+pub enum QueryStageOutput {
     Partial {
         physical_plan: PhysicalPlanRef,
         source_id: usize,

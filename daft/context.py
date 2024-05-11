@@ -50,7 +50,9 @@ def _get_runner_config_from_env() -> _RunnerConfig:
         )
     elif runner.upper() == "PY":
         use_thread_pool_env = os.getenv("DAFT_DEVELOPER_USE_THREAD_POOL")
-        use_thread_pool = bool(int(use_thread_pool_env)) if use_thread_pool_env is not None else None
+        use_thread_pool = (
+            bool(int(use_thread_pool_env)) if use_thread_pool_env is not None else None
+        )
         return _PyRunnerConfig(use_thread_pool=use_thread_pool)
     raise ValueError(f"Unsupported DAFT_RUNNER variable: {runner}")
 
@@ -66,7 +68,9 @@ class DaftContext:
     # Non-execution calls (e.g. creation of a dataframe, logical plan building etc) directly reference values in this config
     _daft_planning_config: PyDaftPlanningConfig = PyDaftPlanningConfig()
 
-    _runner_config: _RunnerConfig = dataclasses.field(default_factory=_get_runner_config_from_env)
+    _runner_config: _RunnerConfig = dataclasses.field(
+        default_factory=_get_runner_config_from_env
+    )
     _disallow_set_runner: bool = False
     _runner: Runner | None = None
 
@@ -134,7 +138,9 @@ class DaftContext:
             self._runner = PyRunner(use_thread_pool=self._runner_config.use_thread_pool)
 
         else:
-            raise NotImplementedError(f"Runner config implemented: {self._runner_config.name}")
+            raise NotImplementedError(
+                f"Runner config implemented: {self._runner_config.name}"
+            )
 
         # Mark DaftContext as having the runner set, which prevents any subsequent setting of the config
         # after the runner has been initialized once
@@ -230,7 +236,9 @@ def set_planning_config(
     # Replace values in the DaftPlanningConfig with user-specified overrides
     ctx = get_context()
     with ctx._lock:
-        old_daft_planning_config = ctx._daft_planning_config if config is None else config
+        old_daft_planning_config = (
+            ctx._daft_planning_config if config is None else config
+        )
         new_daft_planning_config = old_daft_planning_config.with_config_values(
             default_io_config=default_io_config,
         )
@@ -256,6 +264,7 @@ def set_execution_config(
     shuffle_aggregation_default_partitions: int | None = None,
     read_sql_partition_size_bytes: int | None = None,
     enable_aqe: bool | None = None,
+    enable_new_executor: bool | None = None,
 ) -> DaftContext:
     """Globally sets various configuration parameters which control various aspects of Daft execution. These configuration values
     are used when a Dataframe is executed (e.g. calls to `.write_*`, `.collect()` or `.show()`)
@@ -287,11 +296,14 @@ def set_execution_config(
         shuffle_aggregation_default_partitions: Minimum number of partitions to create when performing aggregations. Defaults to 200, unless the number of input partitions is less than 200.
         read_sql_partition_size_bytes: Target size of partition when reading from SQL databases. Defaults to 512MB
         enable_aqe: Enables Adaptive Query Execution, Defaults to False
+        enable_new_executor: Enables new local executor. Defaults to False
     """
     # Replace values in the DaftExecutionConfig with user-specified overrides
     ctx = get_context()
     with ctx._lock:
-        old_daft_execution_config = ctx._daft_execution_config if config is None else config
+        old_daft_execution_config = (
+            ctx._daft_execution_config if config is None else config
+        )
         new_daft_execution_config = old_daft_execution_config.with_config_values(
             scan_tasks_min_size_bytes=scan_tasks_min_size_bytes,
             scan_tasks_max_size_bytes=scan_tasks_max_size_bytes,
@@ -308,6 +320,7 @@ def set_execution_config(
             shuffle_aggregation_default_partitions=shuffle_aggregation_default_partitions,
             read_sql_partition_size_bytes=read_sql_partition_size_bytes,
             enable_aqe=enable_aqe,
+            enable_new_executor=enable_new_executor,
         )
 
         ctx._daft_execution_config = new_daft_execution_config

@@ -3,34 +3,34 @@ use std::sync::Arc;
 use common_error::DaftResult;
 use daft_dsl::{Expr, ExprRef};
 use daft_micropartition::MicroPartition;
-use daft_plan::{physical_ops::Project, ResourceRequest};
+use daft_plan::ResourceRequest;
 
 use crate::compute::partition::partition_ref::PartitionMetadata;
 
 use super::ops::PartitionTaskOp;
 
 #[derive(Debug)]
-pub struct ProjectOp {
-    projection: Vec<ExprRef>,
+pub struct FilterOp {
+    predicate: Vec<ExprRef>,
     resource_request: ResourceRequest,
 }
 
-impl ProjectOp {
-    pub fn new(projection: Vec<ExprRef>, resource_request: ResourceRequest) -> Self {
+impl FilterOp {
+    pub fn new(predicate: Vec<ExprRef>) -> Self {
         Self {
-            projection,
-            resource_request,
+            predicate,
+            resource_request: Default::default(),
         }
     }
 }
 
-impl PartitionTaskOp for ProjectOp {
+impl PartitionTaskOp for FilterOp {
     type Input = MicroPartition;
 
     fn execute(&self, inputs: Vec<Arc<Self::Input>>) -> DaftResult<Vec<Arc<MicroPartition>>> {
         assert_eq!(inputs.len(), 1);
         let input = inputs.into_iter().next().unwrap();
-        let out = input.eval_expression_list(self.projection.as_slice())?;
+        let out = input.filter(self.predicate.as_slice())?;
         Ok(vec![Arc::new(out)])
     }
 

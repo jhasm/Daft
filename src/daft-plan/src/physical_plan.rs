@@ -6,6 +6,7 @@ use {
     daft_core::schema::SchemaRef,
     daft_dsl::python::PyExpr,
     daft_dsl::Expr,
+    daft_micropartition::python::PyMicroPartition,
     daft_scan::{file_format::FileFormat, python::pylib::PyScanTask},
     pyo3::{
         pyclass, pymethods, types::PyBytes, PyObject, PyRef, PyRefMut, PyResult, PyTypeInfo,
@@ -17,6 +18,8 @@ use {
 use crate::source_info::InMemoryInfo;
 use daft_core::impl_bincode_py_state_serialization;
 use daft_dsl::ExprRef;
+use daft_micropartition::MicroPartition;
+use pyo3::IntoPy;
 use serde::{Deserialize, Serialize};
 use std::{cmp::max, ops::Add, sync::Arc};
 
@@ -603,6 +606,13 @@ impl PhysicalPlan {
         self.fmt_tree_indent_style(0, &mut s).unwrap();
         s
     }
+
+    pub fn run(
+        &self,
+        psets: HashMap<String, Vec<Arc<MicroPartition>>>,
+    ) -> Box<dyn Iterator<Item = Arc<MicroPartition>> + Send> {
+        todo!()
+    }
 }
 
 /// A work scheduler for physical plans.
@@ -623,8 +633,53 @@ impl PhysicalPlanScheduler {
         Ok(self.plan.repr_ascii(simple))
     }
     /// Converts the contained physical plan into an iterator of executable partition tasks.
-    pub fn to_partition_tasks(&self, psets: HashMap<String, Vec<PyObject>>) -> PyResult<PyObject> {
-        Python::with_gil(|py| self.plan.to_partition_tasks(py, &psets))
+    pub fn to_partition_tasks(
+        &self,
+        py: Python,
+        psets: HashMap<String, Vec<PyObject>>,
+    ) -> PyResult<PyObject> {
+        self.plan.to_partition_tasks(py, &psets)
+    }
+    pub fn run(
+        &self,
+        py: Python,
+        psets: HashMap<String, Vec<PyMicroPartition>>,
+    ) -> PyResult<PyObject> {
+        let native_psets: HashMap<String, Vec<Arc<MicroPartition>>> = psets
+            .into_iter()
+            .map(|(part_id, parts)| {
+                (
+                    part_id,
+                    parts
+                        .into_iter()
+                        .map(|part| part.into())
+                        .collect::<Vec<Arc<MicroPartition>>>(),
+                )
+            })
+            .collect();
+        let out = py.allow_threads(|| self.plan.run(native_psets));
+        let iter = Box::new(
+            out.map(|part| pyo3::Python::with_gil(|py| PyMicroPartition::from(part).into_py(py))),
+        );
+        let part_iter = StreamingPartitionIterator { iter };
+        Ok(part_iter.into_py(py))
+    }
+}
+
+#[cfg(feature = "python")]
+#[pyclass]
+struct StreamingPartitionIterator {
+    iter: Box<dyn Iterator<Item = PyObject> + Send>,
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl StreamingPartitionIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
+        slf.iter.next()
     }
 }
 

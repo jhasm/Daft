@@ -5,7 +5,7 @@ use daft_scan::ScanTask;
 
 use super::{partition_ref::PartitionMetadata, PartitionRef};
 
-pub trait VirtualPartition {
+pub trait VirtualPartition: Clone {
     type TaskOpInput;
 
     fn metadata(&self) -> PartitionMetadata;
@@ -60,10 +60,19 @@ impl VirtualPartition for Arc<ScanTask> {
 //     }
 // }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VirtualPartitionSet<T: PartitionRef> {
     PartitionRef(Vec<T>),
     ScanTask(Vec<Arc<ScanTask>>),
+}
+
+impl<T: PartitionRef> VirtualPartitionSet<T> {
+    pub fn num_partitions(&self) -> usize {
+        match self {
+            Self::PartitionRef(parts) => parts.len(),
+            Self::ScanTask(parts) => parts.len(),
+        }
+    }
 }
 
 // pub trait VirtualPartition {}

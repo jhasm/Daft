@@ -21,6 +21,16 @@ pub struct CollectSink<T: PartitionRef, E: Executor<T>> {
     _marker: PhantomData<T>,
 }
 
+impl<T: PartitionRef, E: Executor<T>> CollectSink<T, E> {
+    pub fn new(task_graph: PartitionTaskNode, executor: Arc<E>) -> Self {
+        Self {
+            task_graph,
+            executor,
+            _marker: PhantomData,
+        }
+    }
+}
+
 #[async_trait(?Send)]
 impl<T: PartitionRef, E: Executor<T>> Sink<T> for CollectSink<T, E> {
     async fn run(

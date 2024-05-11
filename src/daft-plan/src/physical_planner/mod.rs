@@ -9,6 +9,7 @@ use crate::LogicalPlan;
 use crate::physical_planner::planner::PhysicalPlanTranslator;
 use common_treenode::TreeNode;
 mod planner;
+pub use planner::QueryStageOutput;
 #[cfg(feature = "python")]
 pub mod python;
 mod translate;

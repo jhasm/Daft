@@ -24,7 +24,7 @@ use super::{
 // TODO(Clark): Add streaming partition task scheduler.
 
 #[derive(Debug)]
-pub struct BulkPartitionTaskScheduler<T: PartitionRef + Send, E: Executor<T>> {
+pub struct BulkPartitionTaskScheduler<T: PartitionRef, E: Executor<T>> {
     state_root: Rc<PartitionTaskState<T>>,
     sorted_state: Vec<Rc<PartitionTaskState<T>>>,
     // running_task_futures: Arc<
@@ -38,14 +38,9 @@ pub struct BulkPartitionTaskScheduler<T: PartitionRef + Send, E: Executor<T>> {
     executor: Arc<E>,
 }
 
-impl<T: PartitionRef + Send, E: Executor<T> + Send> BulkPartitionTaskScheduler<T, E> {
-    pub fn new(
-        task_tree_root: PartitionTaskNode,
-        mut leaf_inputs: Vec<VirtualPartitionSet<T>>,
-        executor: Arc<E>,
-    ) -> Self {
-        let state_root = task_tree_to_state_tree::<T>(task_tree_root, &mut leaf_inputs);
-        assert!(leaf_inputs.len() == 0);
+impl<T: PartitionRef, E: Executor<T>> BulkPartitionTaskScheduler<T, E> {
+    pub fn from_state(state_root: Rc<PartitionTaskState<T>>, executor: Arc<E>) -> Self {
+        // TODO(Clark): Defer topological sorting of state tree creation until execution?
         let sorted_state = topological_sort(state_root.clone());
         let max_op_id = sorted_state.iter().map(|x| x.op_id()).max().unwrap();
         Self {
@@ -56,6 +51,17 @@ impl<T: PartitionRef + Send, E: Executor<T> + Send> BulkPartitionTaskScheduler<T
             inflight_op_task_count: vec![0; max_op_id + 1],
             executor,
         }
+    }
+
+    pub fn new(
+        task_tree_root: PartitionTaskNode,
+        mut leaf_inputs: Vec<VirtualPartitionSet<T>>,
+        executor: Arc<E>,
+    ) -> Self {
+        // TODO(Clark): Defer state tree creation until execution?
+        let state_root = task_tree_to_state_tree::<T>(task_tree_root, &mut leaf_inputs);
+        assert!(leaf_inputs.len() == 0);
+        Self::from_state(state_root, executor)
     }
 
     fn has_inputs(&self) -> bool {
@@ -94,8 +100,11 @@ impl<T: PartitionRef + Send, E: Executor<T> + Send> BulkPartitionTaskScheduler<T
                     .iter()
                     .enumerate()
                     .map(|(input_idx, input)| {
-                        let partition_task =
-                            PartitionTask::new(vec![input.clone()], memory_state.task_op.clone());
+                        // Our task tree -> state tree translation guarantees that any LeafMemory nodes with None task ops
+                        // (i.e. no-op in-memory scans) will have their inputs moved into their outputs before execution,
+                        // so we can safely unwrap the Option<PartitionTaksOp>.
+                        let task_op = memory_state.task_op.as_ref().unwrap().clone();
+                        let partition_task = PartitionTask::new(vec![input.clone()], task_op);
                         SubmittableTask::new(
                             Task::<T>::PartitionTask(partition_task),
                             memory_state.op_id,
@@ -151,6 +160,7 @@ impl<T: PartitionRef + Send, E: Executor<T> + Send> BulkPartitionTaskScheduler<T
             let admissible =
                 submittable.filter(|t| self.executor.can_admit(t.task.resource_request()));
             // TODO(Clark): Use a better metric than output queue size.
+            // TODO(Clark): Prioritize metadata-only ops.
             admissible.min_by(|x, y| {
                 self.sorted_state[x.node_idx]
                     .num_queued_outputs()

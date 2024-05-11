@@ -46,10 +46,46 @@ use super::ops::PartitionTaskOp;
 //     PartitionOpBuilder(FusedOpBuilder<MicroPartition>),
 // }
 
+// impl OpBuilder {
+//     pub fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
+//         match self {
+//             Self::ScanOpBuilder(builder) => builder.add_op(op),
+//             Self::PartitionOpBuilder(builder) => builder.add_op(op),
+//         }
+//     }
+
+//     pub fn can_add_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
+//         match self {
+//             Self::ScanOpBuilder(builder) => builder.can_add_op(op),
+//             Self::PartitionOpBuilder(builder) => builder.can_add_op(op),
+//         }
+//     }
+// }
+
+// pub trait OpBuilder {
+//     type Source;
+
+//     fn from_source_op(source_op: Arc<dyn PartitionTaskOp<Input = Self::Source>>) -> Self;
+//     fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>);
+//     fn can_add_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool;
+//     fn build(self) -> Arc<dyn PartitionTaskOp<Input = Self::Source>>;
+// }
+
+#[derive(Debug)]
 pub struct FusedOpBuilder<T> {
     source_op: Arc<dyn PartitionTaskOp<Input = T>>,
     fused_ops: Vec<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
     resource_request: ResourceRequest,
+}
+
+impl<T> Clone for FusedOpBuilder<T> {
+    fn clone(&self) -> Self {
+        Self {
+            source_op: self.source_op.clone(),
+            fused_ops: self.fused_ops.clone(),
+            resource_request: self.resource_request.clone(),
+        }
+    }
 }
 
 impl<T: std::fmt::Debug + 'static> FusedOpBuilder<T> {
@@ -66,7 +102,7 @@ impl<T: std::fmt::Debug + 'static> FusedOpBuilder<T> {
         self.fused_ops.push(op);
     }
 
-    pub fn can_add_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
+    pub fn can_add_op(&self, op: &dyn PartitionTaskOp<Input = MicroPartition>) -> bool {
         self.resource_request
             .is_pipeline_compatible_with(op.resource_request())
     }
