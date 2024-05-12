@@ -3,6 +3,7 @@ use std::sync::Arc;
 use common_daft_config::DaftExecutionConfig;
 use common_error::DaftResult;
 use common_treenode::{Transformed, TreeNode, TreeNodeRewriter, TreeNodeVisitor};
+use serde::{Deserialize, Serialize};
 
 use crate::logical_ops::Source;
 use crate::logical_optimization::Optimizer;
@@ -243,6 +244,7 @@ impl TreeNodeRewriter for ReplacePlaceholdersWithMaterializedResult {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub enum QueryStageOutput {
     Partial {
         physical_plan: PhysicalPlanRef,
@@ -263,6 +265,13 @@ impl QueryStageOutput {
             QueryStageOutput::Final { physical_plan } => (None, physical_plan),
         }
     }
+
+    pub fn source_id(&self) -> Option<usize> {
+        match self {
+            QueryStageOutput::Partial { source_id, .. } => Some(*source_id),
+            QueryStageOutput::Final { .. } => None,
+        }
+    }
 }
 #[derive(PartialEq, Debug)]
 enum AdaptivePlannerStatus {
@@ -271,12 +280,12 @@ enum AdaptivePlannerStatus {
     Done,
 }
 
-pub(super) struct MaterializedResults {
+pub struct MaterializedResults {
     pub source_id: usize,
     pub in_memory_info: InMemoryInfo,
 }
 
-pub(super) struct AdaptivePlanner {
+pub struct AdaptivePlanner {
     logical_plan: LogicalPlanRef,
     cfg: Arc<DaftExecutionConfig>,
     status: AdaptivePlannerStatus,

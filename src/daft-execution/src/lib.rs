@@ -8,6 +8,7 @@ mod runner;
 mod stage;
 
 use common_error::DaftError;
+pub use runner::run_local_sync;
 use snafu::Snafu;
 
 #[derive(Debug, Snafu)]

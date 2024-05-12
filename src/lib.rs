@@ -61,6 +61,7 @@ pub mod pylib {
         daft_plan::register_modules(_py, m)?;
         daft_micropartition::register_modules(_py, m)?;
         daft_scan::register_modules(_py, m)?;
+        daft_scheduler::register_modules(_py, m)?;
         m.add_wrapped(wrap_pyfunction!(version))?;
         m.add_wrapped(wrap_pyfunction!(build_type))?;
         Ok(())

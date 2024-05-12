@@ -3,10 +3,10 @@ use std::sync::Arc;
 use common_daft_config::DaftExecutionConfig;
 use daft_core::schema::Schema;
 
-use crate::physical_planner::planner::MaterializedResults;
-use crate::source_info::InMemoryInfo;
-use crate::LogicalPlan;
-use crate::{physical_planner::planner::AdaptivePlanner, PhysicalPlanScheduler};
+use crate::PhysicalPlanScheduler;
+use daft_plan::InMemoryInfo;
+use daft_plan::LogicalPlan;
+use daft_plan::{AdaptivePlanner, MaterializedResults};
 use pyo3::prelude::*;
 /// A work scheduler for physical plans.
 #[cfg_attr(feature = "python", pyclass(module = "daft.daft"))]
@@ -28,8 +28,8 @@ impl AdaptivePhysicalPlanScheduler {
     pub fn next(&mut self, py: Python) -> PyResult<(Option<usize>, PhysicalPlanScheduler)> {
         py.allow_threads(|| {
             let output = self.planner.next()?;
-            let (sid, pps) = output.unwrap();
-            Ok((sid, pps.into()))
+            let sid = output.source_id();
+            Ok((sid, output.into()))
         })
     }
 

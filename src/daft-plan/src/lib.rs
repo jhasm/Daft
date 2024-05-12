@@ -24,14 +24,18 @@ pub use daft_core::join::{JoinStrategy, JoinType};
 use daft_scan::file_format::FileFormat;
 pub use logical_plan::{LogicalPlan, LogicalPlanRef};
 pub use partitioning::ClusteringSpec;
-pub use physical_plan::{PhysicalPlan, PhysicalPlanScheduler};
-pub use physical_planner::QueryStageOutput;
+pub use physical_plan::{PhysicalPlan, PhysicalPlanRef};
+pub use physical_planner::{
+    logical_to_physical, AdaptivePlanner, MaterializedResults, QueryStageOutput,
+};
 pub use resource_request::ResourceRequest;
 pub use sink_info::OutputFileInfo;
 pub use source_info::{FileInfo, FileInfos, InMemoryInfo};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
+pub use sink_info::IcebergCatalogInfo;
 #[cfg(feature = "python")]
 use {
     daft_scan::file_format::{
@@ -44,8 +48,6 @@ use {
 pub fn register_modules(_py: Python, parent: &PyModule) -> PyResult<()> {
     use daft_scan::file_format::DatabaseSourceConfig;
 
-    use crate::physical_planner::python::AdaptivePhysicalPlanScheduler;
-
     parent.add_class::<PyLogicalPlanBuilder>()?;
     parent.add_class::<FileFormat>()?;
     parent.add_class::<PyFileFormatConfig>()?;
@@ -53,8 +55,6 @@ pub fn register_modules(_py: Python, parent: &PyModule) -> PyResult<()> {
     parent.add_class::<JsonSourceConfig>()?;
     parent.add_class::<CsvSourceConfig>()?;
     parent.add_class::<DatabaseSourceConfig>()?;
-    parent.add_class::<PhysicalPlanScheduler>()?;
-    parent.add_class::<AdaptivePhysicalPlanScheduler>()?;
     parent.add_class::<ResourceRequest>()?;
     parent.add_class::<FileInfos>()?;
     parent.add_class::<FileInfo>()?;
