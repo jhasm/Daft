@@ -1,4 +1,3 @@
-use core::num;
 use std::{collections::HashMap, sync::Arc};
 
 use daft_micropartition::MicroPartition;
@@ -9,7 +8,7 @@ use daft_plan::{
         Project, ReduceMerge, Sample, Sort, SortMergeJoin, Split, TabularScan, TabularWriteCsv,
         TabularWriteJson, TabularWriteParquet,
     },
-    InMemoryInfo, OutputFileInfo, PhysicalPlan, QueryStageOutput,
+    InMemoryInfo, OutputFileInfo, PhysicalPlan,
 };
 
 use crate::{
@@ -20,22 +19,21 @@ use crate::{
             ops::PartitionTaskOp,
             project::ProjectOp,
             scan::ScanOp,
-            sort::{BoundarySamplingOp, FanoutRange, SamplesToQuantilesOp, SortedMerge},
+            shuffle::{FanoutHashOp, FanoutRandomOp, ReduceMergeOp},
+            sort::{BoundarySamplingOp, FanoutRangeOp, SamplesToQuantilesOp, SortedMergeOp},
         },
         partition::{
-            partition_task_tree::{
-                PartitionTaskLeafMemoryNode, PartitionTaskLeafScanNode, PartitionTaskNode,
-                PartitionTaskNodeBuilder, PartitionTaskStateBuilder,
-            },
+            partition_task_tree::{PartitionTaskNode, PartitionTaskNodeBuilder},
             virtual_partition::VirtualPartitionSet,
             PartitionRef,
         },
     },
     executor::executor::Executor,
     stage::{
-        exchange::{collect::CollectExchange, exchange::Exchange, sort::SortExchange},
-        sink::{collect::CollectSink, sink::Sink},
-        stage::{ExchangeStage, SinkStage, Stage},
+        exchange::{
+            collect::CollectExchange, exchange::Exchange, sort::SortExchange, ShuffleExchange,
+        },
+        stage::Stage,
     },
 };
 
@@ -45,7 +43,6 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
     psets: &HashMap<String, Vec<T>>,
 ) -> PartitionTaskNodeBuilder {
     match physical_plan {
-        #[cfg(feature = "python")]
         PhysicalPlan::InMemoryScan(InMemoryScan {
             in_memory_info: InMemoryInfo { cache_key, .. },
             ..
@@ -112,12 +109,22 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
         PhysicalPlan::FanoutRandom(FanoutRandom {
             input,
             num_partitions,
-        }) => todo!(),
+        }) => {
+            let builder =
+                physical_plan_to_partition_task_tree::<T>(input.as_ref(), leaf_inputs, psets);
+            let fanout_random_op = Arc::new(FanoutRandomOp::new(*num_partitions));
+            builder.fuse_or_link(fanout_random_op)
+        }
         PhysicalPlan::FanoutByHash(FanoutByHash {
             input,
             num_partitions,
             partition_by,
-        }) => todo!(),
+        }) => {
+            let builder =
+                physical_plan_to_partition_task_tree::<T>(input.as_ref(), leaf_inputs, psets);
+            let fanout_hash_op = Arc::new(FanoutHashOp::new(*num_partitions, partition_by.clone()));
+            builder.fuse_or_link(fanout_hash_op)
+        }
         PhysicalPlan::FanoutByRange(_) => unimplemented!(
             "FanoutByRange not implemented, since only use case (sorting) doesn't need it yet."
         ),
@@ -196,7 +203,6 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
                 },
             input,
         }) => todo!(),
-        #[cfg(feature = "python")]
         PhysicalPlan::IcebergWrite(IcebergWrite {
             schema: _,
             iceberg_info,
@@ -208,14 +214,11 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
 }
 
 pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
-    query_stage: &QueryStageOutput,
+    physical_plan: &PhysicalPlan,
+    is_final: bool,
     psets: &HashMap<String, Vec<T>>,
     executor: Arc<E>,
 ) -> Stage<T> {
-    let (physical_plan, is_final) = match query_stage {
-        QueryStageOutput::Partial { physical_plan, .. } => (physical_plan.as_ref(), false),
-        QueryStageOutput::Final { physical_plan, .. } => (physical_plan.as_ref(), true),
-    };
     match physical_plan {
         PhysicalPlan::TabularScan(_) | PhysicalPlan::Project(_) | PhysicalPlan::Filter(_) => {
             // TODO(Clark): Abstract out the following common pattern into a visitor:
@@ -227,30 +230,23 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
                 physical_plan_to_partition_task_tree::<T>(physical_plan, &mut leaf_inputs, psets)
                     .build();
             if is_final {
-                let sink: Box<dyn Sink<T>> = Box::new(CollectSink::new(task_graph, executor));
-                (sink, leaf_inputs).into()
+                // TODO(Clark): Create Sink stage, once implemented.
+                // let sink: Box<dyn Sink<T>> = Box::new(CollectSink::new(task_graph, executor));
+                // (sink, leaf_inputs).into()
+                let exchange: Box<dyn Exchange<T>> =
+                    Box::new(CollectExchange::new(task_graph, executor));
+                (exchange, leaf_inputs).into()
             } else {
                 let exchange: Box<dyn Exchange<T>> =
                     Box::new(CollectExchange::new(task_graph, executor));
                 (exchange, leaf_inputs).into()
             }
         }
-        #[cfg(feature = "python")]
         PhysicalPlan::InMemoryScan(InMemoryScan {
             in_memory_info: InMemoryInfo { cache_key, .. },
             ..
         }) => todo!(),
-        // PhysicalPlan::TabularScan(TabularScan { scan_tasks, .. }) => {
-        //     todo!()
-        // }
         PhysicalPlan::EmptyScan(EmptyScan { schema, .. }) => todo!(),
-        // PhysicalPlan::Project(Project {
-        //     input,
-        //     projection,
-        //     resource_request,
-        //     ..
-        // }) => todo!(),
-        // PhysicalPlan::Filter(Filter { input, predicate }) => todo!(),
         PhysicalPlan::Limit(Limit {
             input,
             limit,
@@ -276,50 +272,41 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
             descending,
             num_partitions,
         }) => {
-            // Sort stage should be preceded by full materialization (in-memory scan).
-            assert!(matches!(input.as_ref(), PhysicalPlan::InMemoryScan(_)));
             let mut leaf_inputs = vec![];
-            let mut boundary_sampling_task_tree_builder =
+            let upstream_task_tree_builder =
                 physical_plan_to_partition_task_tree::<T>(input.as_ref(), &mut leaf_inputs, psets);
-            assert!(matches!(
-                boundary_sampling_task_tree_builder,
-                PartitionTaskNodeBuilder::LeafMemory(None)
-            ));
-            let mut fanout_range_task_tree_builder = boundary_sampling_task_tree_builder.clone();
+            let upstream_task_graph = upstream_task_tree_builder.build();
 
-            let sampling_task_op =
-                Arc::new(BoundarySamplingOp::new(*num_partitions, sort_by.clone()));
-            assert!(boundary_sampling_task_tree_builder.can_add_op(sampling_task_op.as_ref()));
-            boundary_sampling_task_tree_builder.add_op(sampling_task_op);
-            let sampling_task_graph = boundary_sampling_task_tree_builder.build();
-            assert!(matches!(
-                sampling_task_graph,
-                PartitionTaskNode::LeafMemory(_)
-            ));
+            let sampling_task_op = BoundarySamplingOp::new(*num_partitions, sort_by.clone());
+            let task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>> =
+                Arc::new(sampling_task_op);
+            let sampling_task_graph = PartitionTaskNode::LeafMemory(Some(task_op).into());
 
-            let reduce_to_quantiles_op =
-                SamplesToQuantilesOp::new(*num_partitions, sort_by.clone(), descending.clone());
+            let reduce_to_quantiles_op = SamplesToQuantilesOp::new(
+                *num_partitions,
+                sort_by.clone(),
+                descending.clone(),
+                sampling_task_graph.num_outputs(),
+            );
             let task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>> =
                 Arc::new(reduce_to_quantiles_op);
             let reduce_to_quantiles_task_graph =
                 PartitionTaskNode::LeafMemory(Some(task_op).into());
 
-            let fanout_range_op = Arc::new(FanoutRange::new(
-                *num_partitions,
-                sort_by.clone(),
-                descending.clone(),
-            ));
-            assert!(fanout_range_task_tree_builder.can_add_op(fanout_range_op.as_ref()));
-            fanout_range_task_tree_builder.add_op(fanout_range_op);
-            let map_task_graph = fanout_range_task_tree_builder.build();
-            assert!(matches!(map_task_graph, PartitionTaskNode::LeafMemory(_)));
+            let fanout_range_op =
+                FanoutRangeOp::new(*num_partitions, sort_by.clone(), descending.clone());
+            let task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>> =
+                Arc::new(fanout_range_op);
+            let map_task_graph = PartitionTaskNode::LeafMemory(Some(task_op).into());
 
-            let sorted_merge_op = SortedMerge::new(sort_by.clone(), descending.clone());
+            let sorted_merge_op =
+                SortedMergeOp::new(*num_partitions, sort_by.clone(), descending.clone());
             let task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>> =
                 Arc::new(sorted_merge_op);
             let reduce_task_graph = PartitionTaskNode::LeafMemory(Some(task_op).into());
 
             let sort_exchange: Box<dyn Exchange<T>> = Box::new(SortExchange::new(
+                upstream_task_graph,
                 sampling_task_graph,
                 reduce_to_quantiles_task_graph,
                 map_task_graph,
@@ -342,11 +329,30 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
             input,
             num_partitions,
             partition_by,
-        }) => todo!(),
+        }) => {
+            todo!()
+        }
         PhysicalPlan::FanoutByRange(_) => unimplemented!(
             "FanoutByRange not implemented, since only use case (sorting) doesn't need it yet."
         ),
-        PhysicalPlan::ReduceMerge(ReduceMerge { input }) => todo!(),
+        PhysicalPlan::ReduceMerge(ReduceMerge { input }) => {
+            let mut leaf_inputs = vec![];
+            let map_task_tree_builder =
+                physical_plan_to_partition_task_tree::<T>(input.as_ref(), &mut leaf_inputs, psets);
+            let map_task_graph = map_task_tree_builder.build();
+
+            let reduce_merge_op = ReduceMergeOp::new(map_task_graph.num_outputs());
+            let task_op: Arc<dyn PartitionTaskOp<Input = MicroPartition>> =
+                Arc::new(reduce_merge_op);
+            let reduce_task_graph = PartitionTaskNode::LeafMemory(Some(task_op).into());
+
+            let shuffle_exchange: Box<dyn Exchange<T>> = Box::new(ShuffleExchange::new(
+                map_task_graph,
+                reduce_task_graph,
+                executor,
+            ));
+            (shuffle_exchange, leaf_inputs).into()
+        }
         PhysicalPlan::Aggregate(Aggregate {
             aggregations,
             groupby,
@@ -421,7 +427,6 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
                 },
             input,
         }) => todo!(),
-        #[cfg(feature = "python")]
         PhysicalPlan::IcebergWrite(IcebergWrite {
             schema: _,
             iceberg_info,
@@ -431,309 +436,3 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
         PhysicalPlan::Unpivot(_) => todo!(),
     }
 }
-
-// pub struct PartitionTaskTreeBuilder {
-//     root: PartitionTaskNode,
-// }
-
-// impl PartitionTaskTreeBuilder {
-//     pub fn from_physical_plan(physical_plan: &PhysicalPlan) -> Self {
-//         match physical_plan {
-//             #[cfg(feature = "python")]
-//             PhysicalPlan::InMemoryScan(InMemoryScan {
-//                 in_memory_info: InMemoryInfo { cache_key, .. },
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::TabularScan(TabularScan { scan_tasks, .. }) => {
-//                 todo!()
-//             }
-//             PhysicalPlan::EmptyScan(EmptyScan { schema, .. }) => todo!(),
-//             PhysicalPlan::Project(Project {
-//                 input,
-//                 projection,
-//                 resource_request,
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::Filter(Filter { input, predicate }) => todo!(),
-//             PhysicalPlan::Limit(Limit {
-//                 input,
-//                 limit,
-//                 eager,
-//                 num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::Explode(Explode {
-//                 input, to_explode, ..
-//             }) => todo!(),
-//             PhysicalPlan::Sample(Sample {
-//                 input,
-//                 fraction,
-//                 with_replacement,
-//                 seed,
-//             }) => todo!(),
-//             PhysicalPlan::MonotonicallyIncreasingId(MonotonicallyIncreasingId {
-//                 input,
-//                 column_name,
-//             }) => todo!(),
-//             PhysicalPlan::Sort(Sort {
-//                 input,
-//                 sort_by,
-//                 descending,
-//                 num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::Split(Split {
-//                 input,
-//                 input_num_partitions,
-//                 output_num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::Flatten(Flatten { input }) => todo!(),
-//             PhysicalPlan::FanoutRandom(FanoutRandom {
-//                 input,
-//                 num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::FanoutByHash(FanoutByHash {
-//                 input,
-//                 num_partitions,
-//                 partition_by,
-//             }) => todo!(),
-//             PhysicalPlan::FanoutByRange(_) => unimplemented!(
-//                 "FanoutByRange not implemented, since only use case (sorting) doesn't need it yet."
-//             ),
-//             PhysicalPlan::ReduceMerge(ReduceMerge { input }) => todo!(),
-//             PhysicalPlan::Aggregate(Aggregate {
-//                 aggregations,
-//                 groupby,
-//                 input,
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::Coalesce(Coalesce {
-//                 input,
-//                 num_from,
-//                 num_to,
-//             }) => todo!(),
-//             PhysicalPlan::Concat(Concat { other, input }) => todo!(),
-//             PhysicalPlan::HashJoin(HashJoin {
-//                 left,
-//                 right,
-//                 left_on,
-//                 right_on,
-//                 join_type,
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::SortMergeJoin(SortMergeJoin {
-//                 left,
-//                 right,
-//                 left_on,
-//                 right_on,
-//                 join_type,
-//                 num_partitions,
-//                 left_is_larger,
-//                 needs_presort,
-//             }) => todo!(),
-//             PhysicalPlan::BroadcastJoin(BroadcastJoin {
-//                 broadcaster: left,
-//                 receiver: right,
-//                 left_on,
-//                 right_on,
-//                 join_type,
-//                 is_swapped,
-//             }) => todo!(),
-//             PhysicalPlan::TabularWriteParquet(TabularWriteParquet {
-//                 schema,
-//                 file_info:
-//                     OutputFileInfo {
-//                         root_dir,
-//                         file_format,
-//                         partition_cols,
-//                         compression,
-//                         io_config,
-//                     },
-//                 input,
-//             }) => todo!(),
-//             PhysicalPlan::TabularWriteCsv(TabularWriteCsv {
-//                 schema,
-//                 file_info:
-//                     OutputFileInfo {
-//                         root_dir,
-//                         file_format,
-//                         partition_cols,
-//                         compression,
-//                         io_config,
-//                     },
-//                 input,
-//             }) => todo!(),
-//             PhysicalPlan::TabularWriteJson(TabularWriteJson {
-//                 schema,
-//                 file_info:
-//                     OutputFileInfo {
-//                         root_dir,
-//                         file_format,
-//                         partition_cols,
-//                         compression,
-//                         io_config,
-//                     },
-//                 input,
-//             }) => todo!(),
-//             #[cfg(feature = "python")]
-//             PhysicalPlan::IcebergWrite(IcebergWrite {
-//                 schema: _,
-//                 iceberg_info,
-//                 input,
-//             }) => todo!(),
-//             PhysicalPlan::Pivot(_) => todo!(),
-//             PhysicalPlan::Unpivot(_) => todo!(),
-//         }
-//     }
-// }
-
-// pub struct StagePlanner {
-//     task_tree_buffer: Option<PartitionTaskNode>,
-// }
-
-// impl StagePlanner {
-//     pub fn create_stage<T: PartitionRef>(&mut self, physical_plan: &PhysicalPlan) -> Stage<T> {
-//         match physical_plan {
-//             #[cfg(feature = "python")]
-//             PhysicalPlan::InMemoryScan(InMemoryScan {
-//                 in_memory_info: InMemoryInfo { cache_key, .. },
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::TabularScan(TabularScan { scan_tasks, .. }) => {
-//                 todo!()
-//             }
-//             PhysicalPlan::EmptyScan(EmptyScan { schema, .. }) => todo!(),
-//             PhysicalPlan::Project(Project {
-//                 input,
-//                 projection,
-//                 resource_request,
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::Filter(Filter { input, predicate }) => todo!(),
-//             PhysicalPlan::Limit(Limit {
-//                 input,
-//                 limit,
-//                 eager,
-//                 num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::Explode(Explode {
-//                 input, to_explode, ..
-//             }) => todo!(),
-//             PhysicalPlan::Sample(Sample {
-//                 input,
-//                 fraction,
-//                 with_replacement,
-//                 seed,
-//             }) => todo!(),
-//             PhysicalPlan::MonotonicallyIncreasingId(MonotonicallyIncreasingId {
-//                 input,
-//                 column_name,
-//             }) => todo!(),
-//             PhysicalPlan::Sort(Sort {
-//                 input,
-//                 sort_by,
-//                 descending,
-//                 num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::Split(Split {
-//                 input,
-//                 input_num_partitions,
-//                 output_num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::Flatten(Flatten { input }) => todo!(),
-//             PhysicalPlan::FanoutRandom(FanoutRandom {
-//                 input,
-//                 num_partitions,
-//             }) => todo!(),
-//             PhysicalPlan::FanoutByHash(FanoutByHash {
-//                 input,
-//                 num_partitions,
-//                 partition_by,
-//             }) => todo!(),
-//             PhysicalPlan::FanoutByRange(_) => unimplemented!(
-//                 "FanoutByRange not implemented, since only use case (sorting) doesn't need it yet."
-//             ),
-//             PhysicalPlan::ReduceMerge(ReduceMerge { input }) => todo!(),
-//             PhysicalPlan::Aggregate(Aggregate {
-//                 aggregations,
-//                 groupby,
-//                 input,
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::Coalesce(Coalesce {
-//                 input,
-//                 num_from,
-//                 num_to,
-//             }) => todo!(),
-//             PhysicalPlan::Concat(Concat { other, input }) => todo!(),
-//             PhysicalPlan::HashJoin(HashJoin {
-//                 left,
-//                 right,
-//                 left_on,
-//                 right_on,
-//                 join_type,
-//                 ..
-//             }) => todo!(),
-//             PhysicalPlan::SortMergeJoin(SortMergeJoin {
-//                 left,
-//                 right,
-//                 left_on,
-//                 right_on,
-//                 join_type,
-//                 num_partitions,
-//                 left_is_larger,
-//                 needs_presort,
-//             }) => todo!(),
-//             PhysicalPlan::BroadcastJoin(BroadcastJoin {
-//                 broadcaster: left,
-//                 receiver: right,
-//                 left_on,
-//                 right_on,
-//                 join_type,
-//                 is_swapped,
-//             }) => todo!(),
-//             PhysicalPlan::TabularWriteParquet(TabularWriteParquet {
-//                 schema,
-//                 file_info:
-//                     OutputFileInfo {
-//                         root_dir,
-//                         file_format,
-//                         partition_cols,
-//                         compression,
-//                         io_config,
-//                     },
-//                 input,
-//             }) => todo!(),
-//             PhysicalPlan::TabularWriteCsv(TabularWriteCsv {
-//                 schema,
-//                 file_info:
-//                     OutputFileInfo {
-//                         root_dir,
-//                         file_format,
-//                         partition_cols,
-//                         compression,
-//                         io_config,
-//                     },
-//                 input,
-//             }) => todo!(),
-//             PhysicalPlan::TabularWriteJson(TabularWriteJson {
-//                 schema,
-//                 file_info:
-//                     OutputFileInfo {
-//                         root_dir,
-//                         file_format,
-//                         partition_cols,
-//                         compression,
-//                         io_config,
-//                     },
-//                 input,
-//             }) => todo!(),
-//             #[cfg(feature = "python")]
-//             PhysicalPlan::IcebergWrite(IcebergWrite {
-//                 schema: _,
-//                 iceberg_info,
-//                 input,
-//             }) => todo!(),
-//             PhysicalPlan::Pivot(_) => todo!(),
-//             PhysicalPlan::Unpivot(_) => todo!(),
-//         }
-//     }
-// }

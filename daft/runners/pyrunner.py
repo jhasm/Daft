@@ -177,6 +177,7 @@ class PyRunner(Runner[MicroPartition]):
             while not adaptive_planner.is_done():
                 source_id, plan_scheduler = adaptive_planner.next()
                 if daft_execution_config.enable_new_executor:
+                    print("Using new executor")
                     results_gen = plan_scheduler.run(
                         {
                             k: v.values()
@@ -184,6 +185,7 @@ class PyRunner(Runner[MicroPartition]):
                         }
                     )
                 else:
+                    print("Using old executor")
                     # don't store partition sets in variable to avoid reference
                     tasks = plan_scheduler.to_partition_tasks(
                         {

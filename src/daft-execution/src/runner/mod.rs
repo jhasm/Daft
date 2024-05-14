@@ -3,4 +3,4 @@ pub mod runner;
 pub mod stage_planner;
 pub mod stage_runner;
 
-pub use runner::run_local_sync;
+pub use runner::{run_local_async, run_local_sync};

@@ -34,6 +34,14 @@ impl ResourceManager {
     pub fn update_capacity(&mut self, new_capacity: ExecutionResources) {
         self.current_capacity = new_capacity;
     }
+
+    pub fn current_capacity(&self) -> &ExecutionResources {
+        &self.current_capacity
+    }
+
+    pub fn current_utilization(&self) -> &ExecutionResources {
+        &self.current_usage
+    }
 }
 
 #[derive(Clone, Debug, Default)]

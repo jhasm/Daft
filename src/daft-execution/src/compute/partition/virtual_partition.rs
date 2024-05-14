@@ -28,37 +28,13 @@ impl VirtualPartition for Arc<ScanTask> {
     type TaskOpInput = ScanTask;
 
     fn metadata(&self) -> PartitionMetadata {
-        // TODO(Clark): Add API to ScanTask that always returns a non-None estimate.
-        let num_rows = self.num_rows().unwrap();
-        // TODO(Clark): Add API to ScanTask that always returns a non-None estimate.
-        let size_bytes = self.size_bytes().unwrap();
-        PartitionMetadata::new(num_rows, size_bytes)
+        PartitionMetadata::new(self.num_rows(), self.size_bytes())
     }
 
     fn partition(&self) -> Arc<Self::TaskOpInput> {
         self.clone()
     }
 }
-
-// pub enum VirtualPartition<T: PartitionRef> {
-//     PartitionRef(Arc<T>),
-//     ScanTask(Arc<ScanTask>),
-// }
-
-// impl<T: PartitionRef> VirtualPartition<T> {
-//     pub fn metadata(&self) -> PartitionMetadata {
-//         match self {
-//             Self::PartitionRef(part_ref) => part_ref.metadata(),
-//             Self::ScanTask(scan_task) => {
-//                 // TODO(Clark): Add API to ScanTask that always returns a non-None estimate.
-//                 let num_rows = scan_task.num_rows().unwrap();
-//                 // TODO(Clark): Add API to ScanTask that always returns a non-None estimate.
-//                 let size_bytes = scan_task.size_bytes().unwrap();
-//                 PartitionMetadata::new(num_rows, size_bytes)
-//             }
-//         }
-//     }
-// }
 
 #[derive(Debug, Clone)]
 pub enum VirtualPartitionSet<T: PartitionRef> {
@@ -67,6 +43,7 @@ pub enum VirtualPartitionSet<T: PartitionRef> {
 }
 
 impl<T: PartitionRef> VirtualPartitionSet<T> {
+    #[allow(unused)]
     pub fn num_partitions(&self) -> usize {
         match self {
             Self::PartitionRef(parts) => parts.len(),
@@ -74,9 +51,3 @@ impl<T: PartitionRef> VirtualPartitionSet<T> {
         }
     }
 }
-
-// pub trait VirtualPartition {}
-
-// impl VirtualPartition for ScanTask {}
-
-// impl<T: PartitionRef> VirtualPartition for T {}

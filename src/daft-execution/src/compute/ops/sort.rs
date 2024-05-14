@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use common_error::DaftResult;
-use daft_dsl::{col, Expr, ExprRef};
+use daft_dsl::{col, ExprRef};
 use daft_io::IOStatsContext;
 use daft_micropartition::MicroPartition;
-use daft_plan::{physical_ops::Sample, ResourceRequest};
+use daft_plan::ResourceRequest;
 
 use crate::compute::partition::partition_ref::PartitionMetadata;
 
@@ -22,7 +22,7 @@ impl BoundarySamplingOp {
         Self {
             size,
             sort_by,
-            resource_request: Default::default(),
+            resource_request: ResourceRequest::new(Some(1.0), None, None),
         }
     }
 }
@@ -36,7 +36,7 @@ impl PartitionTaskOp for BoundarySamplingOp {
         let predicate = self
             .sort_by
             .iter()
-            .map(|e| col(e.name()))
+            .map(|e| col(e.name()).not_null())
             .collect::<Vec<_>>();
         let out = input
             .sample_by_size(self.size, false, None)?
@@ -45,26 +45,16 @@ impl PartitionTaskOp for BoundarySamplingOp {
         Ok(vec![Arc::new(out)])
     }
 
-    fn num_outputs(&self) -> usize {
-        1
-    }
-
     fn resource_request(&self) -> &ResourceRequest {
         &self.resource_request
     }
 
-    fn resource_request_with_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest {
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        "BoundarySamplingOp"
     }
 }
 
@@ -73,16 +63,23 @@ pub struct SamplesToQuantilesOp {
     num_quantiles: usize,
     sort_by: Vec<ExprRef>,
     descending: Vec<bool>,
+    num_inputs: usize,
     resource_request: ResourceRequest,
 }
 
 impl SamplesToQuantilesOp {
-    pub fn new(num_quantiles: usize, sort_by: Vec<ExprRef>, descending: Vec<bool>) -> Self {
+    pub fn new(
+        num_quantiles: usize,
+        sort_by: Vec<ExprRef>,
+        descending: Vec<bool>,
+        num_inputs: usize,
+    ) -> Self {
         Self {
             num_quantiles,
             sort_by,
             descending,
-            resource_request: Default::default(),
+            num_inputs,
+            resource_request: ResourceRequest::new(Some(1.0), None, None),
         }
     }
 }
@@ -106,49 +103,43 @@ impl PartitionTaskOp for SamplesToQuantilesOp {
         Ok(vec![Arc::new(out)])
     }
 
-    fn num_outputs(&self) -> usize {
-        1
+    fn num_inputs(&self) -> usize {
+        self.num_inputs
     }
 
     fn resource_request(&self) -> &ResourceRequest {
         &self.resource_request
     }
 
-    fn resource_request_with_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest {
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        "SamplesToQuantilesOp"
     }
 }
 
 #[derive(Debug)]
-pub struct FanoutRange {
+pub struct FanoutRangeOp {
     num_outputs: usize,
     sort_by: Vec<ExprRef>,
     descending: Vec<bool>,
     resource_request: ResourceRequest,
 }
 
-impl FanoutRange {
+impl FanoutRangeOp {
     pub fn new(num_outputs: usize, sort_by: Vec<ExprRef>, descending: Vec<bool>) -> Self {
         Self {
             num_outputs,
             sort_by,
             descending,
-            resource_request: Default::default(),
+            resource_request: ResourceRequest::new(Some(1.0), None, None),
         }
     }
 }
 
-impl PartitionTaskOp for FanoutRange {
+impl PartitionTaskOp for FanoutRangeOp {
     type Input = MicroPartition;
 
     fn execute(&self, inputs: Vec<Arc<Self::Input>>) -> DaftResult<Vec<Arc<MicroPartition>>> {
@@ -165,7 +156,9 @@ impl PartitionTaskOp for FanoutRange {
             [table] => table,
             _ => unreachable!(),
         };
+        log::warn!("Boundaries num rows: {}", boundaries.len());
         let partitioned = inputs.partition_by_range(&self.sort_by, boundaries, &self.descending)?;
+        log::warn!("Partitioned num MicroPartitions: {}", partitioned.len());
         assert!(partitioned.len() >= 1);
         let schema = partitioned[0].schema();
         let mut partitioned = partitioned.into_iter().map(Arc::new).collect::<Vec<_>>();
@@ -175,7 +168,15 @@ impl PartitionTaskOp for FanoutRange {
                     .take(self.num_outputs - partitioned.len()),
             );
         }
+        log::warn!(
+            "Partitioned num MicroPartitions after padding: {}",
+            partitioned.len()
+        );
         Ok(partitioned)
+    }
+
+    fn num_inputs(&self) -> usize {
+        2
     }
 
     fn num_outputs(&self) -> usize {
@@ -186,43 +187,38 @@ impl PartitionTaskOp for FanoutRange {
         &self.resource_request
     }
 
-    fn resource_request_with_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest {
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        "FanoutRangeOp"
     }
 }
 
 #[derive(Debug)]
-pub struct SortedMerge {
+pub struct SortedMergeOp {
+    num_inputs: usize,
     sort_by: Vec<ExprRef>,
     descending: Vec<bool>,
     resource_request: ResourceRequest,
 }
 
-impl SortedMerge {
-    pub fn new(sort_by: Vec<ExprRef>, descending: Vec<bool>) -> Self {
+impl SortedMergeOp {
+    pub fn new(num_inputs: usize, sort_by: Vec<ExprRef>, descending: Vec<bool>) -> Self {
         Self {
+            num_inputs,
             sort_by,
             descending,
-            resource_request: Default::default(),
+            resource_request: ResourceRequest::new(Some(1.0), None, None),
         }
     }
 }
 
-impl PartitionTaskOp for SortedMerge {
+impl PartitionTaskOp for SortedMergeOp {
     type Input = MicroPartition;
 
     fn execute(&self, inputs: Vec<Arc<Self::Input>>) -> DaftResult<Vec<Arc<MicroPartition>>> {
-        assert!(inputs.len() == 2);
         let inputs = inputs
             .iter()
             .map(|input| input.as_ref())
@@ -233,25 +229,19 @@ impl PartitionTaskOp for SortedMerge {
             .map(|mp| vec![Arc::new(mp)])
     }
 
-    fn num_outputs(&self) -> usize {
-        1
+    fn num_inputs(&self) -> usize {
+        self.num_inputs
     }
 
     fn resource_request(&self) -> &ResourceRequest {
         &self.resource_request
     }
 
-    fn resource_request_with_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest {
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        "FanoutRangeOp"
     }
 }

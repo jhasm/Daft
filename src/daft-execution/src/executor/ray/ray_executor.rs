@@ -44,4 +44,12 @@ impl Executor<RayPartitionRef> for RayExecutor {
         // TODO(Clark): Submit task to Ray cluster.
         todo!()
     }
+
+    fn current_capacity(&self) -> ExecutionResources {
+        todo!()
+    }
+
+    fn current_utilization(&self) -> ExecutionResources {
+        todo!()
+    }
 }

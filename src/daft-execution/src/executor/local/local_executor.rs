@@ -69,10 +69,10 @@ impl Executor<LocalPartitionRef> for LocalExecutor {
                         out
                     }
                 };
-                let result = result.map(|r| {
+                let result = result.and_then(|r| {
                     r.into_iter()
-                        .map(LocalPartitionRef::new)
-                        .collect::<Vec<_>>()
+                        .map(LocalPartitionRef::try_new)
+                        .collect::<DaftResult<Vec<_>>>()
                 });
                 let _ = send.send(result);
             });
@@ -81,6 +81,22 @@ impl Executor<LocalPartitionRef> for LocalExecutor {
         .context(crate::JoinSnafu {})
         .await??;
         Ok((task_id, result))
+    }
+
+    fn current_capacity(&self) -> ExecutionResources {
+        self.resource_manager
+            .lock()
+            .unwrap()
+            .current_capacity()
+            .clone()
+    }
+
+    fn current_utilization(&self) -> ExecutionResources {
+        self.resource_manager
+            .lock()
+            .unwrap()
+            .current_utilization()
+            .clone()
     }
 }
 
@@ -93,7 +109,7 @@ impl SerialExecutor {
 }
 
 impl Executor<LocalPartitionRef> for SerialExecutor {
-    fn can_admit(&self, resource_request: &ResourceRequest) -> bool {
+    fn can_admit(&self, _: &ResourceRequest) -> bool {
         true
     }
 
@@ -124,9 +140,17 @@ impl Executor<LocalPartitionRef> for SerialExecutor {
             task_id,
             result
                 .into_iter()
-                .map(LocalPartitionRef::new)
-                .collect::<Vec<_>>(),
+                .map(LocalPartitionRef::try_new)
+                .collect::<DaftResult<Vec<_>>>()?,
         ))
+    }
+
+    fn current_capacity(&self) -> ExecutionResources {
+        Default::default()
+    }
+
+    fn current_utilization(&self) -> ExecutionResources {
+        Default::default()
     }
 }
 

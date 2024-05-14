@@ -15,9 +15,11 @@ daft-scan = {path = "src/daft-scan", default-features = false}
 daft-scheduler = {path = "src/daft-scheduler", default-features = false}
 daft-stats = {path = "src/daft-stats", default-features = false}
 daft-table = {path = "src/daft-table", default-features = false}
+log = {workspace = true}
 lzma-sys = {version = "*", features = ["static"]}
 pyo3 = {workspace = true, optional = true}
 pyo3-log = {workspace = true, optional = true}
+sysinfo = {workspace = true}
 
 [features]
 default = ["python"]
@@ -35,6 +37,7 @@ python = [
   "daft-micropartition/python",
   "daft-scan/python",
   "daft-stats/python",
+  "daft-scheduler/python",
   "common-daft-config/python",
   "common-system-info/python"
 ]
@@ -127,6 +130,7 @@ tokio = {version = "1.37.0", features = ["net", "time", "bytes", "process", "sig
 tokio-stream = {version = "0.1.14", features = ["fs"]}
 tokio-util = "0.7.8"
 url = "2.4.0"
+sysinfo = "0.30.12"
 
 [workspace.dependencies.arrow2]
 # branch = "daft-fork"

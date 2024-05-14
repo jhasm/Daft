@@ -31,6 +31,48 @@ impl ResourceRequest {
         }
     }
 
+    pub fn with_num_cpus(&self, num_cpus: Option<f64>) -> Self {
+        Self {
+            num_cpus,
+            ..self.clone()
+        }
+    }
+
+    pub fn or_num_cpus(&self, num_cpus: Option<f64>) -> Self {
+        Self {
+            num_cpus: self.num_cpus.or(num_cpus),
+            ..self.clone()
+        }
+    }
+
+    pub fn with_num_gpus(&self, num_gpus: Option<f64>) -> Self {
+        Self {
+            num_gpus,
+            ..self.clone()
+        }
+    }
+
+    pub fn or_num_gpus(&self, num_gpus: Option<f64>) -> Self {
+        Self {
+            num_gpus: self.num_gpus.or(num_gpus),
+            ..self.clone()
+        }
+    }
+
+    pub fn with_memory_bytes(&self, memory_bytes: Option<usize>) -> Self {
+        Self {
+            memory_bytes,
+            ..self.clone()
+        }
+    }
+
+    pub fn or_memory_bytes(&self, memory_bytes: Option<usize>) -> Self {
+        Self {
+            memory_bytes: self.memory_bytes.or(memory_bytes),
+            ..self.clone()
+        }
+    }
+
     pub fn has_any(&self) -> bool {
         self.num_cpus.is_some() || self.num_gpus.is_some() || self.memory_bytes.is_some()
     }

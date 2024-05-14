@@ -9,16 +9,16 @@ pub trait PartitionRef: std::fmt::Debug + Clone + 'static {
 
 #[derive(Debug, Clone)]
 pub struct PartitionMetadata {
-    num_rows: usize,
-    size_bytes: usize,
-    // part_col_stats: PartitionColumnStats,
-    // execution_stats: ExecutionStats,
+    pub num_rows: Option<usize>,
+    pub size_bytes: Option<usize>,
+    // pub part_col_stats: PartitionColumnStats,
+    // pub execution_stats: ExecutionStats,
 }
 
 impl PartitionMetadata {
     pub fn new(
-        num_rows: usize,
-        size_bytes: usize,
+        num_rows: Option<usize>,
+        size_bytes: Option<usize>,
         // part_col_stats: PartitionColumnStats,
         // execution_stats: ExecutionStats,
     ) -> Self {

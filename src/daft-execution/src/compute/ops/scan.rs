@@ -18,7 +18,7 @@ pub struct ScanOp {
 impl ScanOp {
     pub fn new() -> Self {
         Self {
-            resource_request: Default::default(),
+            resource_request: ResourceRequest::new(Some(1.0), None, None),
         }
     }
 }
@@ -37,25 +37,15 @@ impl PartitionTaskOp for ScanOp {
         Ok(vec![Arc::new(out)])
     }
 
-    fn num_outputs(&self) -> usize {
-        1
-    }
-
     fn resource_request(&self) -> &ResourceRequest {
         &self.resource_request
     }
 
-    fn resource_request_with_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest {
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        "ScanOp"
     }
 }

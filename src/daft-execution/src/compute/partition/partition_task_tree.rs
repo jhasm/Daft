@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 
@@ -86,19 +86,17 @@ pub enum PartitionTaskNode {
     Inner(PartitionTaskInnerNode),
 }
 
-// pub struct PartitionTaskTreeBuilder {
-//     pub node_builder: PartitionTaskNodeBuilder,
-//     pub root: Option<PartitionTaskNode>,
-// }
-
-// impl PartitionTaskTreeBuilder {
-//     pub fn new(node_builder: PartitionTaskNodeBuilder) -> Self {
-//         Self {
-//             node_builder,
-//             root: None,
-//         }
-//     }
-// }
+impl PartitionTaskNode {
+    pub fn num_outputs(&self) -> usize {
+        match self {
+            Self::LeafScan(PartitionTaskLeafScanNode { task_op }) => task_op.num_outputs(),
+            Self::LeafMemory(PartitionTaskLeafMemoryNode { task_op }) => {
+                task_op.as_ref().map(|op| op.num_outputs()).unwrap_or(1)
+            }
+            Self::Inner(PartitionTaskInnerNode { task_op, .. }) => task_op.num_outputs(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum PartitionTaskNodeBuilder {
@@ -113,7 +111,7 @@ impl PartitionTaskNodeBuilder {
             Self::LeafScan(builder) => builder.add_op(op),
             Self::LeafMemory(Some(builder)) | Self::Inner(_, builder) => builder.add_op(op),
             Self::LeafMemory(ref mut builder) => {
-                builder.insert(FusedOpBuilder::new(op));
+                let _ = builder.insert(FusedOpBuilder::new(op));
             }
         }
     }
@@ -152,98 +150,6 @@ impl PartitionTaskNodeBuilder {
     }
 }
 
-// pub trait PartitionTaskNodeBuilder {
-//     type Input;
-//     fn new(op: Arc<dyn PartitionTaskOp<Input = Self::Input>>) -> Self;
-//     fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool;
-//     fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>);
-//     fn build(self) -> PartitionTaskNode;
-// }
-
-// pub struct InnerTaskNodeBuilder {
-//     task_op_builder: FusedOpBuilder<MicroPartition>,
-// }
-
-// impl InnerTaskNodeBuilder {
-//     pub fn new(op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
-//         let task_op_builder = FusedOpBuilder::<MicroPartition>::new(op);
-//         Self { task_op_builder }
-//     }
-
-//     pub fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
-//         self.task_op_builder.can_add_op(op)
-//     }
-
-//     pub fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
-//         self.task_op_builder.add_op(op)
-//     }
-
-//     pub fn build(self) -> PartitionTaskNode {
-//         let task_op = self.task_op_builder.build();
-//         todo!()
-//     }
-// }
-// pub struct PartitionTaskNodeBuilder {
-//     task_op_builder: FusedOpBuilder<MicroPartition>,
-// }
-
-// impl PartitionTaskNodeBuilder {
-//     pub fn new(op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
-//         let task_op_builder = FusedOpBuilder::<MicroPartition>::new(op);
-//         Self { task_op_builder }
-//     }
-
-//     pub fn can_fuse_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
-//         self.task_op_builder.can_add_op(op)
-//     }
-
-//     pub fn fuse_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
-//         self.task_op_builder.add_op(op)
-//     }
-
-//     pub fn build(self) -> PartitionTaskNode {
-//         let task_op = self.task_op_builder.build();
-//         let node = PartitionTaskNode::
-//         todo!()
-//     }
-// }
-
-// pub struct PartitionTaskTreeBuilder {
-//     task_tree: Option<PartitionTaskNode>,
-// }
-
-// impl PartitionTaskTreeBuilder {
-//     // pub fn from_scan(root: PartitionTaskSpec<ScanTask>) -> Self {
-//     //     Self {
-//     //         task_tree_buffer: PartitionTaskLeafNode::new(root),
-//     //     }
-//     // }
-
-//     // pub fn from_partition_task(root: PartitionTaskSpec<ScanTask>) -> Self {
-//     //     Self {
-//     //         task_tree_buffer: PartitionTaskLeafNode::new(root),
-//     //     }
-//     // }
-
-//     pub fn add_scan_task_to_stage(&mut self, partition_task_spec: PartitionTaskSpec<ScanTask>) {
-//         let node = PartitionTaskLeafScanNode::new(partition_task_spec);
-//         self.task_tree = match self.task_tree {
-//             Some(PartitionTaskNode::Inner(mut inner)) => inner.inputs.pu
-//         }
-//         self.task_tree = if let Some(t) = self.task_tree {
-
-//         }
-//         todo!()
-//     }
-
-//     pub fn add_partition_task_to_stage(
-//         &self,
-//         partition_task_spec: PartitionTaskSpec<MicroPartition>,
-//     ) {
-//         todo!()
-//     }
-// }
-
 static OP_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
@@ -261,7 +167,9 @@ impl<T: PartitionRef> PartitionTaskLeafScanState<T> {
     ) -> Self {
         let inputs = Rc::new(RefCell::new(VecDeque::from(inputs)));
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![Rc::new(RefCell::new(VecDeque::new())); task_op.num_outputs()];
+        let outputs = std::iter::repeat_with(|| Rc::new(RefCell::new(VecDeque::new())))
+            .take(task_op.num_outputs())
+            .collect::<Vec<_>>();
         Self {
             task_op,
             op_id,
@@ -285,21 +193,23 @@ where
 pub struct PartitionTaskLeafMemoryState<T: PartitionRef> {
     pub task_op: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
     pub op_id: usize,
-    pub inputs: Rc<RefCell<VecDeque<T>>>,
+    pub inputs: Vec<Rc<RefCell<VecDeque<T>>>>,
     pub outputs: Vec<Rc<RefCell<VecDeque<T>>>>,
 }
 
 impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
     pub fn new(
         task_op: Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
-        inputs: Vec<T>,
+        inputs: Vec<Vec<T>>,
     ) -> Self {
-        let inputs = Rc::new(RefCell::new(VecDeque::from(inputs)));
+        let inputs = inputs
+            .into_iter()
+            .map(|input| Rc::new(RefCell::new(VecDeque::from(input))))
+            .collect::<Vec<_>>();
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![
-            Rc::new(RefCell::new(VecDeque::new()));
-            task_op.as_ref().map_or(1, |op| op.num_outputs())
-        ];
+        let outputs = std::iter::repeat_with(|| Rc::new(RefCell::new(VecDeque::new())))
+            .take(task_op.as_ref().map_or(1, |op| op.num_outputs()))
+            .collect::<Vec<_>>();
         Self {
             task_op,
             op_id,
@@ -312,29 +222,19 @@ impl<T: PartitionRef> PartitionTaskLeafMemoryState<T> {
 impl<T: PartitionRef>
     From<(
         Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
-        Vec<T>,
+        Vec<Vec<T>>,
     )> for PartitionTaskLeafMemoryState<T>
 {
     fn from(
         value: (
             Option<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
-            Vec<T>,
+            Vec<Vec<T>>,
         ),
     ) -> Self {
         let (task_op, inputs) = value;
         Self::new(task_op, inputs)
     }
 }
-
-// impl<T: PartitionRef, P> From<(Option<P>, Vec<T>)> for PartitionTaskLeafMemoryState<T>
-// where
-//     P: PartitionTaskOp<Input = MicroPartition> + 'static,
-// {
-//     fn from(value: (Option<P>, Vec<T>)) -> Self {
-//         let (task_op, inputs) = value;
-//         Self::new(task_op.map(Arc::new), inputs)
-//     }
-// }
 
 #[derive(Debug)]
 pub struct PartitionTaskInnerState<T: PartitionRef> {
@@ -353,13 +253,15 @@ impl<T: PartitionRef> PartitionTaskInnerState<T> {
         let inputs = children
             .iter()
             .map(|child| {
-                let mut child_outputs = child.outputs();
+                let child_outputs = child.outputs();
                 assert!(child_outputs.len() == 1);
-                child_outputs.remove(0)
+                child_outputs.into_iter().next().unwrap()
             })
             .collect::<Vec<_>>();
         let op_id = OP_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let outputs = vec![Rc::new(RefCell::new(VecDeque::new())); task_op.num_outputs()];
+        let outputs = std::iter::repeat_with(|| Rc::new(RefCell::new(VecDeque::new())))
+            .take(task_op.num_outputs())
+            .collect::<Vec<_>>();
         Self {
             task_op,
             children,
@@ -388,14 +290,33 @@ pub enum PartitionTaskState<T: PartitionRef> {
 }
 
 impl<T: PartitionRef> PartitionTaskState<T> {
-    pub fn pop_input(&self, idx: usize) {
+    pub fn pop_input_back(&self) {
+        match self {
+            Self::LeafScan(leaf) => {
+                leaf.inputs.borrow_mut().pop_back();
+            }
+            Self::LeafMemory(leaf) => {
+                leaf.inputs.iter().for_each(|inner_inputs| {
+                    inner_inputs.borrow_mut().pop_back();
+                });
+            }
+            Self::Inner(inner) => {
+                inner.inputs.iter().for_each(|inner_inputs| {
+                    inner_inputs.borrow_mut().pop_back();
+                });
+            }
+        }
+    }
+    pub fn pop_input_at_index(&self, idx: usize) {
         // TODO(Clark): This is currently O(n), we should ideally make this O(1).
         match self {
             Self::LeafScan(leaf) => {
                 leaf.inputs.borrow_mut().remove(idx);
             }
             Self::LeafMemory(leaf) => {
-                leaf.inputs.borrow_mut().remove(idx);
+                leaf.inputs.iter().for_each(|inner_inputs| {
+                    inner_inputs.borrow_mut().remove(idx);
+                });
             }
             Self::Inner(inner) => {
                 inner.inputs.iter().for_each(|inner_inputs| {
@@ -415,12 +336,8 @@ impl<T: PartitionRef> PartitionTaskState<T> {
     pub fn num_queued_inputs(&self) -> usize {
         match self {
             Self::LeafScan(leaf) => leaf.inputs.borrow().len(),
-            Self::LeafMemory(leaf) => leaf.inputs.borrow().len(),
-            Self::Inner(inner) => inner
-                .inputs
-                .iter()
-                .map(|input_lane| input_lane.borrow().len())
-                .sum(),
+            Self::LeafMemory(leaf) => leaf.inputs[0].borrow().len(),
+            Self::Inner(inner) => inner.inputs[0].borrow().len(),
         }
     }
 
@@ -451,59 +368,16 @@ impl<T: PartitionRef> PartitionTaskState<T> {
             Self::Inner(inner) => inner.op_id,
         }
     }
-}
 
-#[derive(Debug)]
-pub enum PartitionTaskStateBuilder<T: PartitionRef> {
-    LeafScan(Vec<Arc<ScanTask>>, FusedOpBuilder<ScanTask>),
-    LeafMemory(Vec<T>, Option<FusedOpBuilder<MicroPartition>>),
-    Inner(
-        Vec<Rc<PartitionTaskState<T>>>,
-        FusedOpBuilder<MicroPartition>,
-    ),
-}
-
-impl<T: PartitionRef> PartitionTaskStateBuilder<T> {
-    pub fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
+    pub fn op_name(&self) -> &str {
         match self {
-            Self::LeafScan(_, builder) => builder.add_op(op),
-            Self::LeafMemory(_, Some(builder)) | Self::Inner(_, builder) => builder.add_op(op),
-            Self::LeafMemory(_, ref mut builder) => {
-                builder.insert(FusedOpBuilder::new(op));
-            }
-        }
-    }
-
-    pub fn can_add_op(&self, op: &dyn PartitionTaskOp<Input = MicroPartition>) -> bool {
-        match self {
-            Self::LeafScan(_, builder) => builder.can_add_op(op),
-            Self::LeafMemory(_, Some(builder)) | Self::Inner(_, builder) => builder.can_add_op(op),
-            Self::LeafMemory(_, None) => true,
-        }
-    }
-
-    pub fn build(self) -> PartitionTaskState<T> {
-        match self {
-            Self::LeafScan(inputs, builder) => PartitionTaskState::LeafScan(
-                PartitionTaskLeafScanState::new(builder.build(), inputs),
-            ),
-            Self::LeafMemory(inputs, builder) => PartitionTaskState::LeafMemory(
-                PartitionTaskLeafMemoryState::new(builder.map(|b| b.build()), inputs),
-            ),
-            Self::Inner(inputs, builder) => {
-                PartitionTaskState::Inner(PartitionTaskInnerState::new(builder.build(), inputs))
-            }
-        }
-    }
-
-    pub fn fuse_or_link(mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> Self {
-        if self.can_add_op(op.as_ref()) {
-            self.add_op(op.clone());
-            self
-        } else {
-            let op_builder = FusedOpBuilder::new(op);
-            let child_node = self.build();
-            PartitionTaskStateBuilder::Inner(vec![child_node.into()], op_builder)
+            Self::LeafScan(leaf) => leaf.task_op.name(),
+            Self::LeafMemory(leaf) => leaf
+                .task_op
+                .as_ref()
+                .map(|op| op.name())
+                .unwrap_or("InMemoryScan"),
+            Self::Inner(inner) => inner.task_op.name(),
         }
     }
 }
@@ -528,26 +402,29 @@ pub fn task_tree_to_state_tree<T: PartitionRef>(
             }
         }
         PartitionTaskNode::LeafMemory(PartitionTaskLeafMemoryNode { task_op }) => {
-            let partition_set = leaf_inputs.remove(0);
-            if let VirtualPartitionSet::PartitionRef(part_refs) = partition_set {
-                let memory_state =
-                    PartitionTaskLeafMemoryState::<T>::new(task_op.clone(), part_refs);
-                if task_op.is_none() {
-                    // If no task op for this in-memory scan, we can immediately push all inputs into the output queue.
-                    // TODO(Clark): We should probably lift this into the partition task scheduler, and have it be a generic procedure of
-                    // identifying no-op or metadata-only tasks and directly pushing inputs into outputs.
-                    assert!(memory_state.outputs.len() == 1);
-                    memory_state.outputs[0]
-                        .borrow_mut()
-                        .extend(memory_state.inputs.borrow_mut().drain(..));
-                }
-                PartitionTaskState::LeafMemory(memory_state).into()
-            } else {
-                panic!(
-                    "Leaf input for in-memory node must be in-memory references: {:?}",
-                    partition_set
-                )
+            let num_inputs = task_op.as_ref().map(|op| op.num_inputs()).unwrap_or(1);
+            let partition_sets = leaf_inputs.drain(..num_inputs);
+            let part_refs = partition_sets
+                .map(|p| match p {
+                    VirtualPartitionSet::PartitionRef(part_refs) => part_refs,
+                    VirtualPartitionSet::ScanTask(_) => panic!(
+                        "Leaf input for in-memory node must be in-memory references: {:?}",
+                        p
+                    ),
+                })
+                .collect::<Vec<_>>();
+            let memory_state = PartitionTaskLeafMemoryState::<T>::new(task_op.clone(), part_refs);
+            if task_op.is_none() {
+                // If no task op for this in-memory scan, we can immediately push all inputs into the output queue.
+                // TODO(Clark): We should probably lift this into the partition task scheduler, and have it be a generic procedure of
+                // identifying no-op or metadata-only tasks and directly pushing inputs into outputs.
+                assert!(memory_state.inputs.len() == 1);
+                assert!(memory_state.outputs.len() == 1);
+                memory_state.outputs[0]
+                    .borrow_mut()
+                    .extend(memory_state.inputs[0].borrow_mut().drain(..));
             }
+            PartitionTaskState::LeafMemory(memory_state).into()
         }
         PartitionTaskNode::Inner(PartitionTaskInnerNode { inputs, task_op }) => {
             let children = inputs

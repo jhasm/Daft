@@ -2,38 +2,10 @@ use common_error::DaftResult;
 use futures::Stream;
 
 use crate::{
-    compute::partition::{
-        virtual_partition::{VirtualPartition, VirtualPartitionSet},
-        PartitionRef,
-    },
-    stage::stage::{ExchangeStage, ExecutionStage, SinkStage},
+    compute::partition::PartitionRef,
+    stage::stage::{ExchangeStage, SinkStage},
 };
 
-// pub trait StageRunner<T: PartitionRef> {
-//     type Output;
-
-//     fn run(stage: ExecutionStage<T>, inputs: Vec<VirtualPartitionSet<T>>) -> Self::Output;
-// }
-
-// pub struct SinkStageRunner {}
-
-// impl<T: PartitionRef> StageRunner<T> for SinkStageRunner {
-//     type Output = impl Stream<Item = T>;
-
-//     fn run(stage: ExecutionStage<T>, inputs: Vec<VirtualPartitionSet<T>>) -> Self::Output {
-//         futures::stream::iter([])
-//     }
-// }
-
-// pub struct ExchangeStageRunner {}
-
-// impl<T: PartitionRef> StageRunner<T> for ExchangeStageRunner {
-//     type Output = Vec<T>;
-
-//     fn run(stage: ExecutionStage<T>, inputs: Vec<VirtualPartitionSet<T>>) -> Self::Output {
-//         todo!()
-//     }
-// }
 pub struct ExchangeStageRunner<T: PartitionRef> {
     stage: ExchangeStage<T>,
 }
@@ -46,6 +18,7 @@ impl<T: PartitionRef> ExchangeStageRunner<T> {
 
 impl<T: PartitionRef> ExchangeStageRunner<T> {
     pub fn run(self) -> DaftResult<Vec<Vec<T>>> {
+        log::info!("Running exchange stage: {}", self.stage.stage_id);
         let local = tokio::task::LocalSet::new();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         local.block_on(&runtime, async move {
@@ -69,7 +42,8 @@ impl<T: PartitionRef> SinkStageRunner<T> {
 }
 
 impl<T: PartitionRef> SinkStageRunner<T> {
-    pub fn run(self) -> DaftResult<Vec<Box<dyn Stream<Item = DaftResult<T>>>>> {
+    pub fn run(self) -> DaftResult<Vec<Box<dyn Stream<Item = DaftResult<T>> + Unpin>>> {
+        log::info!("Running sink stage: {}", self.stage.stage_id);
         let local = tokio::task::LocalSet::new();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         local.block_on(&runtime, async move {

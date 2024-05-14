@@ -1,5 +1,3 @@
-#![feature(return_position_impl_trait_in_trait)]
-#![feature(async_fn_in_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
 mod compute;
@@ -8,7 +6,7 @@ mod runner;
 mod stage;
 
 use common_error::DaftError;
-pub use runner::run_local_sync;
+pub use runner::{run_local_async, run_local_sync};
 use snafu::Snafu;
 
 #[derive(Debug, Snafu)]
@@ -31,17 +29,3 @@ impl From<Error> for DaftError {
         }
     }
 }
-
-type Result<T, E = Error> = std::result::Result<T, E>;
-
-// #[cfg(feature = "python")]
-// use execution_plan::PyExecutor;
-// #[cfg(feature = "python")]
-// use pyo3::prelude::*;
-
-// #[cfg(feature = "python")]
-// pub fn register_modules(_py: Python, parent: &PyModule) -> PyResult<()> {
-//     parent.add_class::<PyExecutor>()?;
-
-//     Ok(())
-// }

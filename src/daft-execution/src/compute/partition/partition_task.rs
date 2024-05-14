@@ -3,8 +3,6 @@ use std::sync::{
     Arc,
 };
 
-use common_error::DaftResult;
-use daft_micropartition::MicroPartition;
 use daft_plan::ResourceRequest;
 use daft_scan::ScanTask;
 
@@ -16,41 +14,6 @@ use super::{
 };
 
 static TASK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-// pub struct PartitionTaskSpec<T> {
-//     task_op: Arc<dyn PartitionTaskOp<Input = T>>,
-//     resource_request: ResourceRequest,
-// }
-
-// impl<T> PartitionTaskSpec<T> {
-//     pub fn resource_request(&self) -> &ResourceRequest {
-//         &self.resource_request
-//     }
-
-//     pub fn to_task(&self, inputs: Vec<VirtualPartition<T>>) -> Box<dyn Task<T>> {}
-// }
-
-// TODO(Clark): Break into enum for unary and binary tasks?
-// TDOO(Clark): Static binding for input type?
-
-// pub trait Task<T: PartitionRef> {
-//     fn resource_request(&self) -> &ResourceRequest;
-//     fn partial_metadata(&self) -> &PartitionMetadata;
-//     fn task_id(&self) -> usize;
-//     fn into_executable(
-//         self,
-//     ) -> (
-//         Vec<VirtualPartition<T>>,
-//         Arc<dyn PartitionTaskOp<Input = T>>,
-//     );
-// }
-
-// pub trait Task<V: VirtualPartition> {
-//     fn resource_request(&self) -> &ResourceRequest;
-//     fn partial_metadata(&self) -> &PartitionMetadata;
-//     fn task_id(&self) -> usize;
-//     fn into_executable(self) -> (Vec<V>, Arc<dyn PartitionTaskOp<Input = V::TaskOpInput>>);
-// }
 
 #[derive(Debug)]
 pub enum Task<T: PartitionRef> {
@@ -72,6 +35,13 @@ impl<T: PartitionRef> Task<T> {
             Self::PartitionTask(pt) => pt.task_id(),
         }
     }
+
+    pub fn task_op_name(&self) -> &str {
+        match self {
+            Self::ScanTask(pt) => pt.task_op.name(),
+            Self::PartitionTask(pt) => pt.task_op.name(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -79,7 +49,7 @@ pub struct PartitionTask<V: VirtualPartition> {
     inputs: Vec<V>,
     task_op: Arc<dyn PartitionTaskOp<Input = V::TaskOpInput>>,
     resource_request: ResourceRequest,
-    partial_metadata: PartitionMetadata,
+    // partial_metadata: PartitionMetadata,
     task_id: usize,
 }
 
@@ -88,12 +58,12 @@ impl<V: VirtualPartition> PartitionTask<V> {
         let task_id = TASK_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let input_metadata = inputs.iter().map(|vp| vp.metadata()).collect::<Vec<_>>();
         let resource_request = task_op.resource_request_with_input_metadata(&input_metadata);
-        let partial_metadata = task_op.partial_metadata_from_input_metadata(&input_metadata);
+        // let partial_metadata = task_op.partial_metadata_from_input_metadata(&input_metadata);
         Self {
             inputs,
             task_op,
             resource_request,
-            partial_metadata,
+            // partial_metadata,
             task_id,
         }
     }
@@ -103,7 +73,8 @@ impl<V: VirtualPartition> PartitionTask<V> {
     }
 
     pub fn partial_metadata(&self) -> &PartitionMetadata {
-        &self.partial_metadata
+        todo!()
+        // &self.partial_metadata
     }
 
     pub fn task_id(&self) -> usize {
@@ -119,58 +90,4 @@ impl<V: VirtualPartition> PartitionTask<V> {
     ) {
         (self.inputs, self.task_op, self.resource_request)
     }
-
-    pub fn execute(self) -> DaftResult<Vec<Arc<MicroPartition>>> {
-        let inputs = self
-            .inputs
-            .into_iter()
-            .map(|input| input.partition())
-            .collect::<Vec<_>>();
-        self.task_op.execute(inputs)
-    }
 }
-
-// pub struct PartitionTask<T: PartitionRef> {
-//     inputs: Vec<VirtualPartition<T>>,
-//     task_op: Arc<dyn PartitionTaskOp<Input = T>>,
-//     resource_request: ResourceRequest,
-//     partial_metadata: PartitionMetadata,
-//     task_id: usize,
-// }
-
-// impl<T: PartitionRef> PartitionTask<T> {
-//     pub fn new(
-//         inputs: Vec<VirtualPartition<T>>,
-//         task_op: Arc<dyn PartitionTaskOp<Input = T>>,
-//     ) -> Self {
-//         let task_id = TASK_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-//         let input_metadata = inputs.iter().map(|vp| vp.metadata()).collect::<Vec<_>>();
-//         let resource_request = task_op.resource_request_with_input_metadata(&input_metadata);
-//         let partial_metadata = task_op.partial_metadata_from_input_metadata(&input_metadata);
-//         Self {
-//             inputs,
-//             task_op,
-//             resource_request,
-//             partial_metadata,
-//             task_id,
-//         }
-//     }
-// }
-
-// impl<T: PartitionRef> Task<T> for PartitionTask<T> {
-//     fn resource_request(&self) -> &ResourceRequest {
-//         &self.resource_request
-//     }
-
-//     fn partial_metadata(&self) -> &PartitionMetadata {
-//         &self.partial_metadata
-//     }
-
-//     fn task_id(&self) -> usize {
-//         self.task_id
-//     }
-
-//     fn into_executable(self) -> (Vec<VirtualPartition<T>>, Arc<dyn PartitionTaskOp<Input = T>>) {
-//         (self.inputs, self.task_op)
-//     }
-// }

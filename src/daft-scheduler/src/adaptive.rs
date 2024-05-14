@@ -7,7 +7,11 @@ use crate::PhysicalPlanScheduler;
 use daft_plan::InMemoryInfo;
 use daft_plan::LogicalPlan;
 use daft_plan::{AdaptivePlanner, MaterializedResults};
-use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
+use {
+    common_daft_config::PyDaftExecutionConfig, daft_plan::PyLogicalPlanBuilder, pyo3::prelude::*,
+};
 /// A work scheduler for physical plans.
 #[cfg_attr(feature = "python", pyclass(module = "daft.daft"))]
 pub struct AdaptivePhysicalPlanScheduler {
@@ -25,6 +29,20 @@ impl AdaptivePhysicalPlanScheduler {
 #[cfg(feature = "python")]
 #[pymethods]
 impl AdaptivePhysicalPlanScheduler {
+    #[staticmethod]
+    pub fn from_logical_plan_builder(
+        logical_plan_builder: &PyLogicalPlanBuilder,
+        py: Python<'_>,
+        cfg: PyDaftExecutionConfig,
+    ) -> PyResult<Self> {
+        py.allow_threads(|| {
+            let logical_plan = logical_plan_builder.builder.build();
+            Ok(AdaptivePhysicalPlanScheduler::new(
+                logical_plan,
+                cfg.config.clone(),
+            ))
+        })
+    }
     pub fn next(&mut self, py: Python) -> PyResult<(Option<usize>, PhysicalPlanScheduler)> {
         py.allow_threads(|| {
             let output = self.planner.next()?;

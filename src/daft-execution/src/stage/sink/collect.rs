@@ -36,7 +36,7 @@ impl<T: PartitionRef, E: Executor<T>> Sink<T> for CollectSink<T, E> {
     async fn run(
         self: Box<Self>,
         inputs: Vec<VirtualPartitionSet<T>>,
-    ) -> DaftResult<Vec<Box<dyn Stream<Item = DaftResult<T>>>>> {
+    ) -> DaftResult<Vec<Box<dyn Stream<Item = DaftResult<T>> + Unpin>>> {
         todo!()
     }
 }

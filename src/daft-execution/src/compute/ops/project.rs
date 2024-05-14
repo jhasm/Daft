@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use common_error::DaftResult;
-use daft_dsl::{Expr, ExprRef};
+use daft_dsl::ExprRef;
 use daft_micropartition::MicroPartition;
-use daft_plan::{physical_ops::Project, ResourceRequest};
+use daft_plan::ResourceRequest;
 
 use crate::compute::partition::partition_ref::PartitionMetadata;
 
@@ -34,25 +34,15 @@ impl PartitionTaskOp for ProjectOp {
         Ok(vec![Arc::new(out)])
     }
 
-    fn num_outputs(&self) -> usize {
-        1
-    }
-
     fn resource_request(&self) -> &ResourceRequest {
         &self.resource_request
     }
 
-    fn resource_request_with_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest {
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        "ProjectOp"
     }
 }

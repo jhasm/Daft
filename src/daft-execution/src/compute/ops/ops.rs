@@ -6,28 +6,27 @@ use daft_plan::ResourceRequest;
 
 use crate::compute::partition::partition_ref::PartitionMetadata;
 
-// pub trait TaskOp {
-//     fn execute(&self) -> DaftResult<Vec<MicroPartition>>;
-//     fn resource_request(&self) -> &ResourceRequest;
-// }
-
 pub trait PartitionTaskOp: std::fmt::Debug + Send + Sync {
     type Input;
 
     fn execute(&self, inputs: Vec<Arc<Self::Input>>) -> DaftResult<Vec<Arc<MicroPartition>>>;
-    fn num_outputs(&self) -> usize;
+    fn num_outputs(&self) -> usize {
+        1
+    }
+    fn num_inputs(&self) -> usize {
+        1
+    }
     fn resource_request(&self) -> &ResourceRequest;
     fn resource_request_with_input_metadata(
         &self,
         input_meta: &[PartitionMetadata],
-    ) -> ResourceRequest;
+    ) -> ResourceRequest {
+        self.resource_request()
+            .or_memory_bytes(input_meta.iter().map(|m| m.size_bytes).sum())
+    }
     fn partial_metadata_from_input_metadata(
         &self,
         input_meta: &[PartitionMetadata],
     ) -> PartitionMetadata;
+    fn name(&self) -> &str;
 }
-
-// pub trait LeafTaskOp {
-//     fn execute(&self, inputs: Vec<ScanTask>) -> DaftResult<Vec<MicroPartition>>;
-//     fn resource_request(&self) -> &ResourceRequest;
-// }

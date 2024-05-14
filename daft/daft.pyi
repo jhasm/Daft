@@ -1418,6 +1418,11 @@ class PhysicalPlanScheduler:
     A work scheduler for physical query plans.
     """
 
+    @staticmethod
+    def from_logical_plan_builder(
+        logical_plan_builder: LogicalPlanBuilder,
+        cfg: PyDaftExecutionConfig,
+    ) -> PhysicalPlanScheduler: ...
     def num_partitions(self) -> int: ...
     def repr_ascii(self, simple: bool) -> str: ...
     def to_partition_tasks(
@@ -1430,6 +1435,11 @@ class AdaptivePhysicalPlanScheduler:
     An adaptive Physical Plan Scheduler.
     """
 
+    @staticmethod
+    def from_logical_plan_builder(
+        logical_plan_builder: LogicalPlanBuilder,
+        cfg: PyDaftExecutionConfig,
+    ) -> AdaptivePhysicalPlanScheduler: ...
     def next(self) -> tuple[int | None, PhysicalPlanScheduler]: ...
     def is_done(self) -> bool: ...
     # Todo use in memory info here instead

@@ -3,73 +3,11 @@ use std::sync::Arc;
 use common_error::DaftResult;
 use daft_micropartition::MicroPartition;
 use daft_plan::ResourceRequest;
-use daft_scan::ScanTask;
+use itertools::Itertools;
 
 use crate::compute::partition::partition_ref::PartitionMetadata;
 
 use super::ops::PartitionTaskOp;
-
-// pub struct FusedOpBuilder {
-//     ops: Vec<Box<dyn PartitionTaskOp<Input = MicroPartition>>>,
-//     resource_request: ResourceRequest,
-// }
-
-// impl FusedOpBuilder {
-//     pub fn new() -> Self {
-//         Self {
-//             ops: vec![],
-//             resource_request: Default::default(),
-//         }
-//     }
-
-//     pub fn add_op(&mut self, op: Box<dyn PartitionTaskOp<Input = MicroPartition>>) {
-//         self.ops.push(op);
-//         self.resource_request = self.resource_request.max(op.resource_request());
-//     }
-
-//     pub fn can_add_op(&self, op: Box<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
-//         self.resource_request
-//             .is_pipeline_compatible_with(op.resource_request())
-//     }
-
-//     pub fn build(self) -> Box<dyn PartitionTaskOp<Input = MicroPartition>> {
-//         if self.ops.len() == 1 {
-//             self.ops[0]
-//         } else {
-//             Box::new(FusedPartitionTaskOp::new(self.ops, self.resource_request))
-//         }
-//     }
-// }
-
-// pub enum OpBuilder {
-//     ScanOpBuilder(FusedOpBuilder<ScanTask>),
-//     PartitionOpBuilder(FusedOpBuilder<MicroPartition>),
-// }
-
-// impl OpBuilder {
-//     pub fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) {
-//         match self {
-//             Self::ScanOpBuilder(builder) => builder.add_op(op),
-//             Self::PartitionOpBuilder(builder) => builder.add_op(op),
-//         }
-//     }
-
-//     pub fn can_add_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool {
-//         match self {
-//             Self::ScanOpBuilder(builder) => builder.can_add_op(op),
-//             Self::PartitionOpBuilder(builder) => builder.can_add_op(op),
-//         }
-//     }
-// }
-
-// pub trait OpBuilder {
-//     type Source;
-
-//     fn from_source_op(source_op: Arc<dyn PartitionTaskOp<Input = Self::Source>>) -> Self;
-//     fn add_op(&mut self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>);
-//     fn can_add_op(&self, op: Arc<dyn PartitionTaskOp<Input = MicroPartition>>) -> bool;
-//     fn build(self) -> Arc<dyn PartitionTaskOp<Input = Self::Source>>;
-// }
 
 #[derive(Debug)]
 pub struct FusedOpBuilder<T> {
@@ -125,6 +63,7 @@ pub struct FusedPartitionTaskOp<T> {
     source_op: Arc<dyn PartitionTaskOp<Input = T>>,
     fused_ops: Vec<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
     resource_request: ResourceRequest,
+    name: String,
 }
 
 impl<T> FusedPartitionTaskOp<T> {
@@ -133,10 +72,14 @@ impl<T> FusedPartitionTaskOp<T> {
         fused_ops: Vec<Arc<dyn PartitionTaskOp<Input = MicroPartition>>>,
         resource_request: ResourceRequest,
     ) -> Self {
+        let name = std::iter::once(source_op.name())
+            .chain(fused_ops.iter().map(|op| op.name()))
+            .join("-");
         Self {
             source_op,
             fused_ops,
             resource_request,
+            name,
         }
     }
 }
@@ -152,6 +95,10 @@ impl<T: std::fmt::Debug> PartitionTaskOp for FusedPartitionTaskOp<T> {
         Ok(inputs)
     }
 
+    fn num_inputs(&self) -> usize {
+        self.source_op.num_inputs()
+    }
+
     fn num_outputs(&self) -> usize {
         self.fused_ops.last().unwrap().num_outputs()
     }
@@ -164,13 +111,15 @@ impl<T: std::fmt::Debug> PartitionTaskOp for FusedPartitionTaskOp<T> {
         &self,
         input_meta: &[PartitionMetadata],
     ) -> ResourceRequest {
+        self.resource_request
+            .or_memory_bytes(input_meta.iter().map(|m| m.size_bytes).sum())
+    }
+
+    fn partial_metadata_from_input_metadata(&self, _: &[PartitionMetadata]) -> PartitionMetadata {
         todo!()
     }
 
-    fn partial_metadata_from_input_metadata(
-        &self,
-        input_meta: &[PartitionMetadata],
-    ) -> PartitionMetadata {
-        todo!()
+    fn name(&self) -> &str {
+        &self.name
     }
 }

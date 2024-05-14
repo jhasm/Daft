@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use common_error::DaftResult;
 use daft_micropartition::MicroPartition;
 
 use crate::compute::partition::partition_ref::{PartitionMetadata, PartitionRef};
@@ -11,14 +12,13 @@ pub struct LocalPartitionRef {
 }
 
 impl LocalPartitionRef {
-    pub fn new(partition: Arc<MicroPartition>) -> Self {
+    pub fn try_new(partition: Arc<MicroPartition>) -> DaftResult<Self> {
         // TODO(Clark): Error handling for size_bytes().
-        let metadata =
-            PartitionMetadata::new(partition.len(), partition.size_bytes().unwrap().unwrap());
-        Self {
+        let metadata = PartitionMetadata::new(Some(partition.len()), partition.size_bytes()?);
+        Ok(Self {
             partition,
             metadata,
-        }
+        })
     }
 }
 

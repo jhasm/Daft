@@ -2,7 +2,6 @@ use std::{marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use common_error::DaftResult;
-use futures::Future;
 
 use crate::{
     compute::partition::{
@@ -44,8 +43,7 @@ impl<T: PartitionRef, E: Executor<T>> Exchange<T> for ShuffleExchange<T, E> {
         let map_task_scheduler =
             BulkPartitionTaskScheduler::new(self.map_task_graph, inputs, self.executor.clone());
         let map_outs = map_task_scheduler.execute().await?;
-        let reduce_ins = transpose_map_outputs(map_outs);
-        let reduce_ins = reduce_ins
+        let reduce_ins = map_outs
             .into_iter()
             .map(|parts| VirtualPartitionSet::PartitionRef(parts))
             .collect::<Vec<_>>();
@@ -56,21 +54,4 @@ impl<T: PartitionRef, E: Executor<T>> Exchange<T> for ShuffleExchange<T, E> {
         );
         reduce_task_scheduler.execute().await
     }
-}
-
-fn transpose_map_outputs<T: PartitionRef>(map_outs: Vec<Vec<T>>) -> Vec<Vec<T>> {
-    assert!(map_outs.len() > 0);
-    let n = map_outs[0].len();
-    let mut iters = map_outs
-        .into_iter()
-        .map(|out| out.into_iter())
-        .collect::<Vec<_>>();
-    (0..n)
-        .map(|_| {
-            iters
-                .iter_mut()
-                .map(|out| out.next().unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
 }

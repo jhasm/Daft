@@ -1,12 +1,11 @@
-use common_daft_config::PyDaftExecutionConfig;
 use common_error::DaftResult;
-use daft_execution::run_local_sync;
+use daft_execution::run_local_async;
 use daft_plan::{logical_to_physical, PhysicalPlan, PhysicalPlanRef, QueryStageOutput};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "python")]
 use {
+    common_daft_config::PyDaftExecutionConfig,
     common_io_config::IOConfig,
     daft_core::python::schema::PySchema,
     daft_core::schema::SchemaRef,
@@ -16,7 +15,7 @@ use {
     daft_plan::{OutputFileInfo, PyLogicalPlanBuilder},
     daft_scan::{file_format::FileFormat, python::pylib::PyScanTask},
     pyo3::{
-        pyclass, pyfunction, pymethods, types::PyBytes, PyObject, PyRef, PyRefMut, PyResult,
+        pyclass, pymethods, types::PyBytes, IntoPy, PyObject, PyRef, PyRefMut, PyResult,
         PyTypeInfo, Python, ToPyObject,
     },
     std::collections::HashMap,
@@ -26,7 +25,6 @@ use daft_core::impl_bincode_py_state_serialization;
 use daft_dsl::ExprRef;
 use daft_micropartition::MicroPartition;
 use daft_plan::InMemoryInfo;
-use pyo3::IntoPy;
 use std::sync::Arc;
 
 use daft_plan::physical_ops::*;
@@ -49,20 +47,6 @@ impl PhysicalPlanScheduler {
         }
     }
 }
-
-// #[cfg(feature = "python")]
-// #[pyfunction]
-// pub fn logical_plan_builder_to_physical_plan_scheduler(
-//     logical_plan_builder: PyLogicalPlanBuilder,
-//     py: Python<'_>,
-//     cfg: PyDaftExecutionConfig,
-// ) -> PyResult<PhysicalPlanScheduler> {
-//     py.allow_threads(|| {
-//         let logical_plan = logical_plan_builder.builder.build();
-//         let physical_plan: PhysicalPlanRef = logical_to_physical(logical_plan, cfg.config.clone())?;
-//         Ok(physical_plan.into())
-//     })
-// }
 
 #[cfg(feature = "python")]
 #[pymethods]
@@ -113,7 +97,7 @@ impl PhysicalPlanScheduler {
                 )
             })
             .collect();
-        let out = py.allow_threads(|| run_local_sync(&self.query_stage, native_psets))?;
+        let out = py.allow_threads(|| run_local_async(&self.query_stage, native_psets))?;
         let iter = Box::new(out.map(|part| {
             part.map(|p| pyo3::Python::with_gil(|py| PyMicroPartition::from(p).into_py(py)))
         }));
@@ -237,8 +221,6 @@ fn physical_plan_to_partition_tasks(
     py: Python<'_>,
     psets: &HashMap<String, Vec<PyObject>>,
 ) -> PyResult<PyObject> {
-    use daft_plan::PhysicalPlan;
-
     match physical_plan {
         PhysicalPlan::InMemoryScan(InMemoryScan {
             in_memory_info: InMemoryInfo { cache_key, .. },
