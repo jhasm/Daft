@@ -22,7 +22,7 @@ impl BoundarySamplingOp {
         Self {
             size,
             sort_by,
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }
@@ -79,7 +79,7 @@ impl SamplesToQuantilesOp {
             sort_by,
             descending,
             num_inputs,
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }
@@ -134,7 +134,7 @@ impl FanoutRangeOp {
             num_outputs,
             sort_by,
             descending,
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }
@@ -210,7 +210,7 @@ impl SortedMergeOp {
             num_inputs,
             sort_by,
             descending,
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }

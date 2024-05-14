@@ -229,7 +229,7 @@ impl<T: PartitionRef, E: Executor<T>> BulkPartitionTaskScheduler<T, E> {
         // TODO(Clark): Use submittable_unordered to mitigate head-of-line blocking.
         let submittable = self.submittable_ordered().collect::<Vec<_>>();
         log::debug!(
-            "Trying to schedule next admissable: capacity = {:?}, utilization = {:?}, submittable = {:?}",
+            "Trying to schedule next admissible: capacity = {:?}, utilization = {:?}, submittable = {:?}",
             self.executor.current_capacity(),
             self.executor.current_utilization(),
             submittable.iter().map(|t| (t.task.task_op_name(), t.task.resource_request())).collect::<Vec<_>>()
@@ -249,7 +249,7 @@ impl<T: PartitionRef, E: Executor<T>> BulkPartitionTaskScheduler<T, E> {
     fn schedule_next_submittable(&self) -> Option<SubmittableTask<T>> {
         // TODO(Clark): Use submittable_unordered to mitigate head-of-line blocking.
         let submittable = self.submittable_ordered();
-        // TODO(Clark): Return the most admissable task (smallest resource capacity violation).
+        // TODO(Clark): Return the most admissible task (smallest resource capacity violation).
         submittable.min_by(|x, y| {
             self.sorted_state[x.node_idx]
                 .num_queued_outputs()

@@ -1,11 +1,14 @@
 from __future__ import annotations
+
 from typing import Iterator
 
 from daft.daft import (
     AdaptivePhysicalPlanScheduler as _AdaptivePhysicalPlanScheduler,
-    PyDaftExecutionConfig,
 )
 from daft.daft import PhysicalPlanScheduler as _PhysicalPlanScheduler
+from daft.daft import (
+    PyDaftExecutionConfig,
+)
 from daft.execution import physical_plan
 from daft.logical.builder import LogicalPlanBuilder
 from daft.runners.partitioning import (
@@ -29,9 +32,7 @@ class PhysicalPlanScheduler:
     def from_logical_plan_builder(
         cls, builder: LogicalPlanBuilder, daft_execution_config: PyDaftExecutionConfig
     ) -> PhysicalPlanScheduler:
-        scheduler = _PhysicalPlanScheduler.from_logical_plan_builder(
-            builder._builder, daft_execution_config
-        )
+        scheduler = _PhysicalPlanScheduler.from_logical_plan_builder(builder._builder, daft_execution_config)
         return cls(scheduler)
 
     def num_partitions(self) -> int:
@@ -49,21 +50,13 @@ class PhysicalPlanScheduler:
     def __repr__(self) -> str:
         return self._scheduler.repr_ascii(simple=False)
 
-    def to_partition_tasks(
-        self, psets: dict[str, list[PartitionT]]
-    ) -> physical_plan.MaterializedPhysicalPlan:
+    def to_partition_tasks(self, psets: dict[str, list[PartitionT]]) -> physical_plan.MaterializedPhysicalPlan:
         return physical_plan.materialize(self._scheduler.to_partition_tasks(psets))
 
-    def run(
-        self, psets: dict[str, list[PyMaterializedResult]]
-    ) -> Iterator[PyMaterializedResult]:
-        psets = {
-            part_id: [part.partition()._micropartition for part in parts]
-            for part_id, parts in psets.items()
-        }
+    def run(self, psets: dict[str, list[MaterializedResult[PartitionT]]]) -> Iterator[PyMaterializedResult]:
+        psets_mp = {part_id: [part.vpartition() for part in parts] for part_id, parts in psets.items()}
         return (
-            PyMaterializedResult(MicroPartition._from_pymicropartition(part))
-            for part in self._scheduler.run(psets)
+            PyMaterializedResult(MicroPartition._from_pymicropartition(part)) for part in self._scheduler.run(psets_mp)
         )
 
 
@@ -75,9 +68,7 @@ class AdaptivePhysicalPlanScheduler:
     def from_logical_plan_builder(
         cls, builder: LogicalPlanBuilder, daft_execution_config: PyDaftExecutionConfig
     ) -> AdaptivePhysicalPlanScheduler:
-        scheduler = _AdaptivePhysicalPlanScheduler.from_logical_plan_builder(
-            builder._builder, daft_execution_config
-        )
+        scheduler = _AdaptivePhysicalPlanScheduler.from_logical_plan_builder(builder._builder, daft_execution_config)
         return cls(scheduler)
 
     def next(self) -> tuple[int | None, PhysicalPlanScheduler]:

@@ -18,7 +18,7 @@ pub struct ScanOp {
 impl ScanOp {
     pub fn new() -> Self {
         Self {
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }

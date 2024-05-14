@@ -96,14 +96,14 @@ impl ResourceRequest {
         let self_num_gpus = self.num_gpus;
         let other_num_cpus = other.num_cpus;
         let other_num_gpus = other.num_gpus;
-        return match (self_num_cpus, self_num_gpus, other_num_cpus, other_num_gpus) {
+        match (self_num_cpus, self_num_gpus, other_num_cpus, other_num_gpus) {
             (_, Some(n_gpus), Some(n_cpus), _) | (Some(n_cpus), _, _, Some(n_gpus))
                 if n_gpus > 0.0 && n_cpus > 0.0 =>
             {
                 false
             }
             (_, _, _, _) => true,
-        };
+        }
     }
 
     pub fn max(&self, other: &ResourceRequest) -> Self {

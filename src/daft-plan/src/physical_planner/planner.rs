@@ -300,7 +300,7 @@ impl AdaptivePlanner {
         }
     }
 
-    pub fn next(&mut self) -> DaftResult<QueryStageOutput> {
+    pub fn next_stage(&mut self) -> DaftResult<QueryStageOutput> {
         assert_eq!(self.status, AdaptivePlannerStatus::Ready);
 
         let mut rewriter = QueryStagePhysicalPlanTranslator {

@@ -25,7 +25,7 @@ impl FanoutHashOp {
         Self {
             num_outputs,
             partition_by,
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }
@@ -70,7 +70,7 @@ impl FanoutRandomOp {
     pub fn new(num_outputs: usize) -> Self {
         Self {
             num_outputs,
-            resource_request: ResourceRequest::new(Some(1.0), None, None),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }
@@ -113,7 +113,7 @@ impl ReduceMergeOp {
     pub fn new(num_inputs: usize) -> Self {
         Self {
             num_inputs,
-            resource_request: Default::default(),
+            resource_request: ResourceRequest::new_internal(Some(1.0), None, None),
         }
     }
 }

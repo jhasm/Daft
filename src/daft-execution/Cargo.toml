@@ -19,10 +19,10 @@ rayon = {workspace = true}
 serde = {workspace = true, features = ["rc"]}
 serde_json = {workspace = true}
 snafu = {workspace = true}
+sysinfo = {workspace = true}
 tokio = {workspace = true}
 tokio-stream = {workspace = true, features = ["io-util"]}
 tokio-util = {workspace = true}
-sysinfo = {workspace = true}
 
 [dev-dependencies]
 rstest = {workspace = true}

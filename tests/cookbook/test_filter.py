@@ -14,9 +14,7 @@ COL_SUBSET = ["Unique Key", "Complaint Type", "Borough", "Descriptor"]
     [
         pytest.param(
             lambda daft_df: (
-                daft_df.where(
-                    col("Complaint Type") == "Noise - Street/Sidewalk"
-                ).select(
+                daft_df.where(col("Complaint Type") == "Noise - Street/Sidewalk").select(
                     col("Unique Key"),
                     col("Complaint Type"),
                     col("Borough"),
@@ -106,13 +104,9 @@ def test_filter(daft_df_ops, daft_df, service_requests_csv_pd_df, repartition_np
         ),
     ],
 )
-def test_complex_filter(
-    daft_df_ops, daft_df, service_requests_csv_pd_df, repartition_nparts
-):
+def test_complex_filter(daft_df_ops, daft_df, service_requests_csv_pd_df, repartition_nparts):
     """Filter the dataframe with a complex filter and select a subset of columns"""
-    daft_noise_complaints_brooklyn = daft_df_ops(
-        daft_df.repartition(repartition_nparts)
-    )
+    daft_noise_complaints_brooklyn = daft_df_ops(daft_df.repartition(repartition_nparts))
 
     pd_noise_complaints_brooklyn = service_requests_csv_pd_df[
         (
@@ -169,21 +163,17 @@ def test_complex_filter(
         ),
     ],
 )
-def test_chain_filter(
-    daft_df_ops, daft_df, service_requests_csv_pd_df, repartition_nparts
-):
+def test_chain_filter(daft_df_ops, daft_df, service_requests_csv_pd_df, repartition_nparts):
     """Filter the dataframe with a chain of filters and select a subset of columns"""
-    daft_noise_complaints_brooklyn = daft_df_ops(
-        daft_df.repartition(repartition_nparts)
-    )
+    daft_noise_complaints_brooklyn = daft_df_ops(daft_df.repartition(repartition_nparts))
 
     pd_noise_complaints_brooklyn = service_requests_csv_pd_df
     pd_noise_complaints_brooklyn = pd_noise_complaints_brooklyn[
         pd_noise_complaints_brooklyn["Complaint Type"] == "Noise - Street/Sidewalk"
     ]
-    pd_noise_complaints_brooklyn = pd_noise_complaints_brooklyn[
-        pd_noise_complaints_brooklyn["Borough"] == "BROOKLYN"
-    ][COL_SUBSET]
+    pd_noise_complaints_brooklyn = pd_noise_complaints_brooklyn[pd_noise_complaints_brooklyn["Borough"] == "BROOKLYN"][
+        COL_SUBSET
+    ]
     daft_pd_df = daft_noise_complaints_brooklyn.to_pandas()
     assert_df_equals(daft_pd_df, pd_noise_complaints_brooklyn)
 

@@ -45,7 +45,7 @@ impl AdaptivePhysicalPlanScheduler {
     }
     pub fn next(&mut self, py: Python) -> PyResult<(Option<usize>, PhysicalPlanScheduler)> {
         py.allow_threads(|| {
-            let output = self.planner.next()?;
+            let output = self.planner.next_stage()?;
             let sid = output.source_id();
             Ok((sid, output.into()))
         })

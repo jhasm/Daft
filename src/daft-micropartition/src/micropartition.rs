@@ -627,6 +627,10 @@ impl MicroPartition {
         self.metadata.length
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn size_bytes(&self) -> DaftResult<Option<usize>> {
         let guard = self.state.lock().unwrap();
         let size_bytes = if let TableState::Loaded(tables) = guard.deref() {

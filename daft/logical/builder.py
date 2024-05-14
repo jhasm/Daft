@@ -35,9 +35,7 @@ class LogicalPlanBuilder:
     def __init__(self, builder: _LogicalPlanBuilder) -> None:
         self._builder = builder
 
-    def to_physical_plan_scheduler(
-        self, daft_execution_config: PyDaftExecutionConfig
-    ) -> PhysicalPlanScheduler:
+    def to_physical_plan_scheduler(self, daft_execution_config: PyDaftExecutionConfig) -> PhysicalPlanScheduler:
         """
         Convert the underlying logical plan to a physical plan scheduler, which is
         used to generate executable tasks for the physical plan.
@@ -125,9 +123,7 @@ class LogicalPlanBuilder:
         builder = self._builder.select(to_select_pyexprs)
         return LogicalPlanBuilder(builder)
 
-    def with_columns(
-        self, columns: list[Expression], custom_resource_request: ResourceRequest
-    ) -> LogicalPlanBuilder:
+    def with_columns(self, columns: list[Expression], custom_resource_request: ResourceRequest) -> LogicalPlanBuilder:
         column_pyexprs = [expr._expr for expr in columns]
         builder = self._builder.with_columns(column_pyexprs, custom_resource_request)
         return LogicalPlanBuilder(builder)
@@ -158,9 +154,7 @@ class LogicalPlanBuilder:
     ) -> LogicalPlanBuilder:
         ids_pyexprs = [expr._expr for expr in ids]
         values_pyexprs = [expr._expr for expr in values]
-        builder = self._builder.unpivot(
-            ids_pyexprs, values_pyexprs, variable_name, value_name
-        )
+        builder = self._builder.unpivot(ids_pyexprs, values_pyexprs, variable_name, value_name)
         return LogicalPlanBuilder(builder)
 
     def count(self) -> LogicalPlanBuilder:
@@ -174,28 +168,20 @@ class LogicalPlanBuilder:
         builder = self._builder.distinct()
         return LogicalPlanBuilder(builder)
 
-    def sample(
-        self, fraction: float, with_replacement: bool, seed: int | None
-    ) -> LogicalPlanBuilder:
+    def sample(self, fraction: float, with_replacement: bool, seed: int | None) -> LogicalPlanBuilder:
         builder = self._builder.sample(fraction, with_replacement, seed)
         return LogicalPlanBuilder(builder)
 
-    def sort(
-        self, sort_by: list[Expression], descending: list[bool] | bool = False
-    ) -> LogicalPlanBuilder:
+    def sort(self, sort_by: list[Expression], descending: list[bool] | bool = False) -> LogicalPlanBuilder:
         sort_by_pyexprs = [expr._expr for expr in sort_by]
         if not isinstance(descending, list):
             descending = [descending] * len(sort_by_pyexprs)
         builder = self._builder.sort(sort_by_pyexprs, descending)
         return LogicalPlanBuilder(builder)
 
-    def hash_repartition(
-        self, num_partitions: int | None, partition_by: list[Expression]
-    ) -> LogicalPlanBuilder:
+    def hash_repartition(self, num_partitions: int | None, partition_by: list[Expression]) -> LogicalPlanBuilder:
         partition_by_pyexprs = [expr._expr for expr in partition_by]
-        builder = self._builder.hash_repartition(
-            partition_by_pyexprs, num_partitions=num_partitions
-        )
+        builder = self._builder.hash_repartition(partition_by_pyexprs, num_partitions=num_partitions)
         return LogicalPlanBuilder(builder)
 
     def random_shuffle(self, num_partitions: int | None) -> LogicalPlanBuilder:
@@ -211,20 +197,12 @@ class LogicalPlanBuilder:
         to_agg: list[Expression],
         group_by: list[Expression] | None,
     ) -> LogicalPlanBuilder:
-        group_by_pyexprs = (
-            [expr._expr for expr in group_by] if group_by is not None else []
-        )
-        builder = self._builder.aggregate(
-            [expr._expr for expr in to_agg], group_by_pyexprs
-        )
+        group_by_pyexprs = [expr._expr for expr in group_by] if group_by is not None else []
+        builder = self._builder.aggregate([expr._expr for expr in to_agg], group_by_pyexprs)
         return LogicalPlanBuilder(builder)
 
-    def map_groups(
-        self, udf: Expression, group_by: list[Expression] | None
-    ) -> LogicalPlanBuilder:
-        group_by_pyexprs = (
-            [expr._expr for expr in group_by] if group_by is not None else []
-        )
+    def map_groups(self, udf: Expression, group_by: list[Expression] | None) -> LogicalPlanBuilder:
+        group_by_pyexprs = [expr._expr for expr in group_by] if group_by is not None else []
         builder = self._builder.aggregate([udf._expr], group_by_pyexprs)
         return LogicalPlanBuilder(builder)
 
@@ -237,9 +215,7 @@ class LogicalPlanBuilder:
         names: list[str],
     ) -> LogicalPlanBuilder:
         group_by_pyexprs = [expr._expr for expr in group_by]
-        builder = self._builder.pivot(
-            group_by_pyexprs, pivot_col._expr, value_col._expr, agg_fn._expr, names
-        )
+        builder = self._builder.pivot(group_by_pyexprs, pivot_col._expr, value_col._expr, agg_fn._expr, names)
         return LogicalPlanBuilder(builder)
 
     def join(  # type: ignore[override]
@@ -263,9 +239,7 @@ class LogicalPlanBuilder:
         builder = self._builder.concat(other._builder)
         return LogicalPlanBuilder(builder)
 
-    def add_monotonically_increasing_id(
-        self, column_name: str | None
-    ) -> LogicalPlanBuilder:
+    def add_monotonically_increasing_id(self, column_name: str | None) -> LogicalPlanBuilder:
         builder = self._builder.add_monotonically_increasing_id(column_name)
         return LogicalPlanBuilder(builder)
 
@@ -278,17 +252,9 @@ class LogicalPlanBuilder:
         compression: str | None = None,
     ) -> LogicalPlanBuilder:
         if file_format != FileFormat.Csv and file_format != FileFormat.Parquet:
-            raise ValueError(
-                f"Writing is only supported for Parquet and CSV file formats, but got: {file_format}"
-            )
-        part_cols_pyexprs = (
-            [expr._expr for expr in partition_cols]
-            if partition_cols is not None
-            else None
-        )
-        builder = self._builder.table_write(
-            str(root_dir), file_format, part_cols_pyexprs, compression, io_config
-        )
+            raise ValueError(f"Writing is only supported for Parquet and CSV file formats, but got: {file_format}")
+        part_cols_pyexprs = [expr._expr for expr in partition_cols] if partition_cols is not None else None
+        builder = self._builder.table_write(str(root_dir), file_format, part_cols_pyexprs, compression, io_config)
         return LogicalPlanBuilder(builder)
 
     def write_iceberg(self, table: IcebergTable) -> LogicalPlanBuilder:
@@ -300,10 +266,6 @@ class LogicalPlanBuilder:
         schema = table.schema()
         props = table.properties
         columns = [col.name for col in schema.columns]
-        io_config = _convert_iceberg_file_io_properties_to_io_config(
-            table.io.properties
-        )
-        builder = self._builder.iceberg_write(
-            name, location, spec_id, schema, props, columns, io_config
-        )
+        io_config = _convert_iceberg_file_io_properties_to_io_config(table.io.properties)
+        builder = self._builder.iceberg_write(name, location, spec_id, schema, props, columns, io_config)
         return LogicalPlanBuilder(builder)

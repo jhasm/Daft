@@ -1,11 +1,12 @@
+#[allow(unused_variables)]
 use std::{collections::HashMap, sync::Arc};
 
 use daft_micropartition::MicroPartition;
 use daft_plan::{
     physical_ops::{
         Aggregate, BroadcastJoin, Coalesce, Concat, EmptyScan, Explode, FanoutByHash, FanoutRandom,
-        Filter, Flatten, HashJoin, IcebergWrite, InMemoryScan, Limit, MonotonicallyIncreasingId,
-        Project, ReduceMerge, Sample, Sort, SortMergeJoin, Split, TabularScan, TabularWriteCsv,
+        Filter, Flatten, HashJoin, InMemoryScan, Limit, MonotonicallyIncreasingId, Project,
+        ReduceMerge, Sample, Sort, SortMergeJoin, Split, TabularScan, TabularWriteCsv,
         TabularWriteJson, TabularWriteParquet,
     },
     InMemoryInfo, OutputFileInfo, PhysicalPlan,
@@ -36,6 +37,9 @@ use crate::{
         stage::Stage,
     },
 };
+
+#[cfg(feature = "python")]
+use daft_plan::physical_ops::IcebergWrite;
 
 fn physical_plan_to_partition_task_tree<T: PartitionRef>(
     physical_plan: &PhysicalPlan,
@@ -203,6 +207,7 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
                 },
             input,
         }) => todo!(),
+        #[cfg(feature = "python")]
         PhysicalPlan::IcebergWrite(IcebergWrite {
             schema: _,
             iceberg_info,
@@ -427,6 +432,7 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
                 },
             input,
         }) => todo!(),
+        #[cfg(feature = "python")]
         PhysicalPlan::IcebergWrite(IcebergWrite {
             schema: _,
             iceberg_info,
