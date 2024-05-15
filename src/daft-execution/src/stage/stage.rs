@@ -1,8 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::compute::partition::{virtual_partition::VirtualPartitionSet, PartitionRef};
+use crate::{
+    compute::partition::{virtual_partition::VirtualPartitionSet, PartitionRef},
+    executor::executor::Executor,
+};
 
-use super::{exchange::exchange::Exchange, sink::sink::Sink};
+use super::{exchange::exchange::Exchange, sink::sink::SinkSpec};
 
 static STAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -23,14 +26,14 @@ impl<T: PartitionRef> ExchangeStage<T> {
     }
 }
 
-pub struct SinkStage<T: PartitionRef> {
-    pub op: Box<dyn Sink<T>>,
+pub struct SinkStage<T: PartitionRef, E: Executor<T> + 'static> {
+    pub op: Box<dyn SinkSpec<T, E> + Send>,
     pub inputs: Vec<VirtualPartitionSet<T>>,
     pub stage_id: usize,
 }
 
-impl<T: PartitionRef> SinkStage<T> {
-    pub fn new(op: Box<dyn Sink<T>>, inputs: Vec<VirtualPartitionSet<T>>) -> Self {
+impl<T: PartitionRef, E: Executor<T> + 'static> SinkStage<T, E> {
+    pub fn new(op: Box<dyn SinkSpec<T, E> + Send>, inputs: Vec<VirtualPartitionSet<T>>) -> Self {
         let stage_id = STAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self {
             op,
@@ -40,20 +43,24 @@ impl<T: PartitionRef> SinkStage<T> {
     }
 }
 
-pub enum Stage<T: PartitionRef> {
+pub enum Stage<T: PartitionRef, E: Executor<T> + 'static> {
     Exchange(ExchangeStage<T>),
-    Sink(SinkStage<T>),
+    Sink(SinkStage<T, E>),
 }
 
-impl<T: PartitionRef> From<(Box<dyn Exchange<T>>, Vec<VirtualPartitionSet<T>>)> for Stage<T> {
+impl<T: PartitionRef, E: Executor<T> + 'static>
+    From<(Box<dyn Exchange<T>>, Vec<VirtualPartitionSet<T>>)> for Stage<T, E>
+{
     fn from(value: (Box<dyn Exchange<T>>, Vec<VirtualPartitionSet<T>>)) -> Self {
         let (op, inputs) = value;
         Self::Exchange(ExchangeStage::new(op, inputs))
     }
 }
 
-impl<T: PartitionRef> From<(Box<dyn Sink<T>>, Vec<VirtualPartitionSet<T>>)> for Stage<T> {
-    fn from(value: (Box<dyn Sink<T>>, Vec<VirtualPartitionSet<T>>)) -> Self {
+impl<T: PartitionRef, E: Executor<T> + 'static>
+    From<(Box<dyn SinkSpec<T, E> + Send>, Vec<VirtualPartitionSet<T>>)> for Stage<T, E>
+{
+    fn from(value: (Box<dyn SinkSpec<T, E> + Send>, Vec<VirtualPartitionSet<T>>)) -> Self {
         let (op, inputs) = value;
         Self::Sink(SinkStage::new(op, inputs))
     }

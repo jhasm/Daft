@@ -54,7 +54,7 @@ class PhysicalPlanScheduler:
         return physical_plan.materialize(self._scheduler.to_partition_tasks(psets))
 
     def run(self, psets: dict[str, list[MaterializedResult[PartitionT]]]) -> Iterator[PyMaterializedResult]:
-        psets_mp = {part_id: [part.vpartition() for part in parts] for part_id, parts in psets.items()}
+        psets_mp = {part_id: [part.vpartition()._micropartition for part in parts] for part_id, parts in psets.items()}
         return (
             PyMaterializedResult(MicroPartition._from_pymicropartition(part)) for part in self._scheduler.run(psets_mp)
         )

@@ -11,9 +11,10 @@ use std::{
 use daft_micropartition::MicroPartition;
 use daft_scan::ScanTask;
 
-use crate::compute::ops::{op_builder::FusedOpBuilder, ops::PartitionTaskOp};
-
-use super::{virtual_partition::VirtualPartitionSet, PartitionRef};
+use crate::compute::{
+    ops::{op_builder::FusedOpBuilder, ops::PartitionTaskOp},
+    partition::{virtual_partition::VirtualPartitionSet, PartitionRef},
+};
 
 #[derive(Debug, Clone)]
 pub struct PartitionTaskLeafScanNode {

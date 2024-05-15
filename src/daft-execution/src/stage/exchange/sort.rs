@@ -4,10 +4,12 @@ use async_trait::async_trait;
 use common_error::DaftResult;
 
 use crate::{
-    compute::partition::{
-        partition_task_scheduler::BulkPartitionTaskScheduler,
-        partition_task_tree::PartitionTaskNode, virtual_partition::VirtualPartitionSet,
-        PartitionRef,
+    compute::{
+        partition::{virtual_partition::VirtualPartitionSet, PartitionRef},
+        tree::{
+            partition_task_scheduler::BulkPartitionTaskScheduler,
+            partition_task_tree::PartitionTaskNode,
+        },
     },
     executor::executor::Executor,
 };

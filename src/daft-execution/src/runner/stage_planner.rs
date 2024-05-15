@@ -23,22 +23,23 @@ use crate::{
             shuffle::{FanoutHashOp, FanoutRandomOp, ReduceMergeOp},
             sort::{BoundarySamplingOp, FanoutRangeOp, SamplesToQuantilesOp, SortedMergeOp},
         },
-        partition::{
-            partition_task_tree::{PartitionTaskNode, PartitionTaskNodeBuilder},
-            virtual_partition::VirtualPartitionSet,
-            PartitionRef,
-        },
+        partition::{virtual_partition::VirtualPartitionSet, PartitionRef},
+        tree::partition_task_tree::{PartitionTaskNode, PartitionTaskNodeBuilder},
     },
     executor::executor::Executor,
     stage::{
         exchange::{
             collect::CollectExchange, exchange::Exchange, sort::SortExchange, ShuffleExchange,
         },
+        sink::{
+            collect::{CollectSink, CollectSinkSpec},
+            sink::{Sink, SinkSpec},
+        },
         stage::Stage,
     },
 };
 
-#[cfg(feature = "python")]
+// #[cfg(feature = "python")]
 use daft_plan::physical_ops::IcebergWrite;
 
 fn physical_plan_to_partition_task_tree<T: PartitionRef>(
@@ -58,7 +59,6 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
             leaf_inputs.push(VirtualPartitionSet::ScanTask(scan_tasks.clone()));
             let scan_op = ScanOp::new();
             let op_builder = FusedOpBuilder::new(Arc::new(scan_op));
-            // PartitionTaskStateBuilder::LeafScan(scan_tasks.clone(), op_builder)
             PartitionTaskNodeBuilder::LeafScan(op_builder)
         }
         PhysicalPlan::EmptyScan(EmptyScan { schema, .. }) => todo!(),
@@ -207,7 +207,7 @@ fn physical_plan_to_partition_task_tree<T: PartitionRef>(
                 },
             input,
         }) => todo!(),
-        #[cfg(feature = "python")]
+        // #[cfg(feature = "python")]
         PhysicalPlan::IcebergWrite(IcebergWrite {
             schema: _,
             iceberg_info,
@@ -223,7 +223,7 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
     is_final: bool,
     psets: &HashMap<String, Vec<T>>,
     executor: Arc<E>,
-) -> Stage<T> {
+) -> Stage<T, E> {
     match physical_plan {
         PhysicalPlan::TabularScan(_) | PhysicalPlan::Project(_) | PhysicalPlan::Filter(_) => {
             // TODO(Clark): Abstract out the following common pattern into a visitor:
@@ -235,12 +235,13 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
                 physical_plan_to_partition_task_tree::<T>(physical_plan, &mut leaf_inputs, psets)
                     .build();
             if is_final {
+                let sink: Box<dyn SinkSpec<T, E> + Send> =
+                    Box::new(CollectSinkSpec::new(task_graph));
+                (sink, leaf_inputs).into()
                 // TODO(Clark): Create Sink stage, once implemented.
-                // let sink: Box<dyn Sink<T>> = Box::new(CollectSink::new(task_graph, executor));
-                // (sink, leaf_inputs).into()
-                let exchange: Box<dyn Exchange<T>> =
-                    Box::new(CollectExchange::new(task_graph, executor));
-                (exchange, leaf_inputs).into()
+                // let exchange: Box<dyn Exchange<T>> =
+                //     Box::new(CollectExchange::new(task_graph, executor));
+                // (exchange, leaf_inputs).into()
             } else {
                 let exchange: Box<dyn Exchange<T>> =
                     Box::new(CollectExchange::new(task_graph, executor));
@@ -432,7 +433,7 @@ pub fn physical_plan_to_stage<T: PartitionRef, E: Executor<T> + 'static>(
                 },
             input,
         }) => todo!(),
-        #[cfg(feature = "python")]
+        // #[cfg(feature = "python")]
         PhysicalPlan::IcebergWrite(IcebergWrite {
             schema: _,
             iceberg_info,
