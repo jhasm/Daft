@@ -118,8 +118,9 @@ impl StreamingPartitionIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
-        Ok(slf.iter.next().transpose()?)
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        let iter = &mut slf.iter;
+        Ok(py.allow_threads(|| iter.next().transpose())?)
     }
 }
 

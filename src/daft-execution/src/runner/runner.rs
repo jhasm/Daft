@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, thread::JoinHandle};
 
 use common_error::DaftResult;
 use daft_micropartition::MicroPartition;
@@ -82,46 +82,33 @@ fn run_local<E: Executor<LocalPartitionRef> + 'static>(
             let (tx, rx) = std::sync::mpsc::channel::<DaftResult<Vec<LocalPartitionRef>>>();
             let runner = SinkStageRunner::new(sink_stage);
             let executor = executor.clone();
-            // TODO(Clark): Figure out why this locks everything up.
-            // let handle = std::thread::spawn(move || {
-            //     runner.run(tx, executor);
-            // });
-            // let out = rx.into_iter().map_ok(|v| {
-            //     assert!(v.len() == 1);
-            //     v.into_iter().next().unwrap().partition()
-            // });
-            // log::warn!("returning iterator");
-            // struct ReceiverIterator<I: Iterator<Item = DaftResult<Arc<MicroPartition>>>> {
-            //     rx_iter: I,
-            //     join_handle: Option<JoinHandle<()>>,
-            // }
-
-            // impl<I: Iterator<Item = DaftResult<Arc<MicroPartition>>>> Iterator for ReceiverIterator<I> {
-            //     type Item = DaftResult<Arc<MicroPartition>>;
-
-            //     fn next(&mut self) -> Option<Self::Item> {
-            //         let n = self.rx_iter.next();
-            //         if n.is_none() && self.join_handle.is_some() {
-            //             self.join_handle.take().unwrap().join().unwrap();
-            //         }
-            //         n
-            //     }
-            // }
-            // Ok(Box::new(ReceiverIterator {
-            //     rx_iter: out,
-            //     join_handle: Some(handle),
-            // }))
-            std::thread::spawn(move || {
+            let handle = std::thread::spawn(move || {
                 runner.run(tx, executor);
             });
-            let out = rx
-                .into_iter()
-                .map_ok(|v| {
-                    assert!(v.len() == 1);
-                    v.into_iter().next().unwrap().partition()
-                })
-                .collect::<Vec<_>>();
-            Ok(Box::new(out.into_iter()))
+            let out = rx.into_iter().map_ok(|v| {
+                assert!(v.len() == 1);
+                v.into_iter().next().unwrap().partition()
+            });
+            struct ReceiverIterator<I: Iterator<Item = DaftResult<Arc<MicroPartition>>>> {
+                rx_iter: I,
+                join_handle: Option<JoinHandle<()>>,
+            }
+
+            impl<I: Iterator<Item = DaftResult<Arc<MicroPartition>>>> Iterator for ReceiverIterator<I> {
+                type Item = DaftResult<Arc<MicroPartition>>;
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    let n = self.rx_iter.next();
+                    if n.is_none() && self.join_handle.is_some() {
+                        self.join_handle.take().unwrap().join().unwrap();
+                    }
+                    n
+                }
+            }
+            Ok(Box::new(ReceiverIterator {
+                rx_iter: out,
+                join_handle: Some(handle),
+            }))
         }
     }
 }
