@@ -114,6 +114,11 @@ pub trait DaftIsNan {
     fn is_nan(&self) -> Self::Output;
 }
 
+pub trait DaftNotNan {
+    type Output;
+    fn not_nan(&self) -> Self::Output;
+}
+
 pub type VecIndices = Vec<u64>;
 pub type GroupIndices = Vec<VecIndices>;
 pub type GroupIndicesPair = (VecIndices, GroupIndices);

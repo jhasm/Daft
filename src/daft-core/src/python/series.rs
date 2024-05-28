@@ -442,6 +442,14 @@ impl PySeries {
         Ok(self.series.is_nan()?.into())
     }
 
+    pub fn not_nan(&self) -> PyResult<Self> {
+        Ok(self.series.not_nan()?.into())
+    }
+
+    pub fn fill_nan(&self, fill_value: &Self) -> PyResult<Self> {
+        Ok(self.series.fill_nan(&fill_value.series)?.into())
+    }
+
     pub fn dt_date(&self) -> PyResult<Self> {
         Ok(self.series.dt_date()?.into())
     }

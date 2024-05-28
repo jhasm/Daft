@@ -628,6 +628,15 @@ class SeriesFloatNamespace(SeriesNamespace):
     def is_nan(self) -> Series:
         return Series._from_pyseries(self._series.is_nan())
 
+    def not_nan(self) -> Series:
+        return Series._from_pyseries(self._series.not_nan())
+
+    def fill_nan(self, fill_value: Series) -> Series:
+        if not isinstance(fill_value, Series):
+            raise ValueError(f"expected another Series but got {type(fill_value)}")
+        assert self._series is not None and fill_value._series is not None
+        return Series._from_pyseries(self._series.fill_nan(fill_value._series))
+
 
 class SeriesStringNamespace(SeriesNamespace):
     def endswith(self, suffix: Series) -> Series:
